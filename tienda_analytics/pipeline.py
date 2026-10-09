@@ -68,6 +68,7 @@ def procesar(
     max_frames: int | None = None,
     reid: Reidentificador | None = None,
     progreso=None,
+    tracker: str = "bytetrack.yaml",
 ) -> tuple[dict[int, Trayecto], np.ndarray, np.ndarray, float]:
     """Detecta, sigue y ubica en zonas a las personas del vídeo.
 
@@ -105,7 +106,7 @@ def procesar(
 
         res = yolo.track(
             frame, persist=True, classes=[CLASE_PERSONA], conf=confianza,
-            tracker="bytetrack.yaml", verbose=False,
+            tracker=tracker, verbose=False,
         )[0]
         cajas = res.boxes
         ids = cajas.id.int().tolist() if cajas.id is not None else []
@@ -281,7 +282,8 @@ def guardar_mapa_calor(calor: np.ndarray, fondo: np.ndarray, ruta: Path) -> None
 def analizar(video: str, config: Config, salida: Path, modelo: str = "yolo11n.pt",
              paso: int = 2, confianza: float = 0.35, video_anotado: bool = False,
              max_frames: int | None = None, modelo_reid: str | None = "modelos/mars-small128.onnx",
-             parametros_reid: ParametrosReid | None = None, progreso=None) -> dict:
+             parametros_reid: ParametrosReid | None = None, progreso=None,
+             tracker: str = "bytetrack.yaml") -> dict:
     """Procesa un vídeo de principio a fin y deja los resultados en `salida`.
 
     Con `modelo_reid=None` no se re-identifica: cada trayecto cuenta como persona.
@@ -297,7 +299,7 @@ def analizar(video: str, config: Config, salida: Path, modelo: str = "yolo11n.pt
         reid = Reidentificador(modelo_reid or None, parametros=parametros_reid)
     registro: list | None = [] if video_anotado else None
     trayectos, calor, fondo, dur = procesar(
-        video, config, modelo, paso, confianza, registro, max_frames, reid, progreso)
+        video, config, modelo, paso, confianza, registro, max_frames, reid, progreso, tracker)
     personas = personas_unicas(trayectos, config, reid)
     validas = guardar_eventos(trayectos, config, salida / "eventos.sqlite", personas)
     if fondo is not None:

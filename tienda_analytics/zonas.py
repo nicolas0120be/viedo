@@ -34,8 +34,11 @@ class Linea:
         return 0 if v == 0 else (1 if v > 0 else -1)
 
     def dentro_del_tramo(self, punto: tuple[float, float]) -> bool:
-        xs = sorted((self.a[0], self.b[0]))
-        return xs[0] <= punto[0] <= xs[1]
+        """El punto cae a lo largo del segmento (también para líneas verticales)."""
+        (x1, y1), (x2, y2) = self.a, self.b
+        dx, dy = x2 - x1, y2 - y1
+        t = ((punto[0] - x1) * dx + (punto[1] - y1) * dy) / ((dx * dx + dy * dy) or 1)
+        return 0.0 <= t <= 1.0
 
 
 @dataclass

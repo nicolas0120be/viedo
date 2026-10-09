@@ -83,3 +83,11 @@ def test_conteo_total_y_unico(tmp_path):
     izq = next(z for z in r.zonas if z.zona == "pasillo_izquierdo")
     assert izq.visitantes == 1
     assert izq.permanencia_media_s == 9.0
+
+
+def test_linea_vertical_cuenta_cruces():
+    from tienda_analytics.zonas import Linea
+    puerta = Linea("puerta", (100, 0), (100, 200))
+    assert puerta.dentro_del_tramo((90, 100)) and puerta.dentro_del_tramo((110, 100))
+    assert not puerta.dentro_del_tramo((100, 250))
+    assert puerta.lado((90, 100)) != puerta.lado((110, 100))

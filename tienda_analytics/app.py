@@ -7,6 +7,7 @@ Uso:
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import sys
 import tempfile
@@ -22,7 +23,8 @@ from tienda_analytics.metricas import calcular  # noqa: E402
 from tienda_analytics.pipeline import analizar  # noqa: E402
 from tienda_analytics.zonas import cargar_config  # noqa: E402
 
-DATOS = RAIZ / "datos_app"
+# En un servidor, DATOS_APP apunta a un disco persistente para no perder los análisis.
+DATOS = Path(os.environ.get("DATOS_APP", RAIZ / "datos_app"))
 ANALISIS = DATOS / "analisis"
 TICKETS = DATOS / "tickets.csv"
 CONFIGS = RAIZ / "config"

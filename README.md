@@ -39,6 +39,21 @@ pytest -q
 
 Sin `modelos/mars-small128.onnx` la re-identificación usa solo el color de la ropa y avisa. Para usar una cámara en directo, pasa la URL RTSP en `--video`.
 
+## Analizar en el navegador (sin instalar nada)
+
+`web/` contiene una versión del front que hace todo el análisis en el navegador de quien lo usa: sube el vídeo, dibuja zonas y líneas de paso sobre la imagen, y obtiene conteo total, clientes únicos, afluencia por intervalo, personas a la vez, embudo, recorridos entre zonas, entradas y salidas por línea, permanencia, mapa de calor, conversión con los tickets y una revisión del vídeo con cada cliente marcado. Usa los mismos modelos que el pipeline de Python (YOLO11n y MARS, con ONNX Runtime Web) y el mismo método de re-identificación, portado a JavaScript en `web/motor.js`.
+
+```bash
+./web/preparar.sh                       # deja página, motor y modelos en web/dist
+python3 -m http.server -d web/dist 8000 # abre http://localhost:8000/analitica-tienda.html
+```
+
+Servida así no guarda historial (eso lo pone el visor de Artifacts de Claude); los resultados se pueden descargar en CSV.
+
+## Desplegar en un servidor
+
+`Dockerfile` empaqueta el front de Streamlit con el análisis en Python. `render.yaml` lo despliega en Render con un disco para los análisis (`DATOS_APP`). En Google Cloud Run las subidas están limitadas a 32 MB, poco para vídeo.
+
 ## Validación del conteo único
 
 Con los parámetros por defecto, frente a un conteo manual de cada vídeo:
@@ -49,6 +64,8 @@ Con los parámetros por defecto, frente a un conteo manual de cada vídeo:
 | people-detection (sala, 50 s) | 7 | 7 | 7 | 0 |
 | one-by-one-person-detection (sala, 140 s) | 6 | 6 | 6 | 0 |
 | entrada_cenital (paso peatonal, 43 s) | 8 | 8 | 8 | 0 |
+
+En el navegador (8 fotogramas por segundo) el resultado es el mismo en clientes únicos: pasillo 8, sala 7, sala uno a uno 6, entrada 8, sin fusiones erróneas, con menos tramos partidos en el pasillo (conteo total 9 frente a 12). En la entrada cenital hay unas 10 personas reales: dos cruzan en menos de 1 s y quedan fuera por la visita mínima; para cámaras de puerta conviene bajarla a 0,5 s.
 
 El sistema está ajustado para no fusionar nunca a dos clientes distintos, aunque a cambio a veces cuente de más a alguien que desaparece varios segundos y vuelve a otra parte de la imagen. Con el modelo MARS incluido, personas distintas con ropa parecida llegan a puntuar más que la misma persona vista de nuevo, por eso la re-entrada lejana es muy estricta. Un modelo más fuerte (OSNet entrenado en MSMT17, exportado a ONNX con entrada BGR 128x64) permitiría bajar `--umbral-reentrada`.
 
@@ -85,3 +102,5 @@ T-1002,2026-10-09T11:00:38,42.90,cuencos;vajilla
 - `store-aisle-detection.mp4`, `people-detection.mp4`, `one-by-one-person-detection.mp4`, `worker-zone-detection.mp4`: [intel-iot-devkit/sample-videos](https://github.com/intel-iot-devkit/sample-videos), CC BY 4.0.
 - `entrada_cenital.mp4`: `test_1.mp4` de [saimj7/People-Counting-in-Real-Time](https://github.com/saimj7/People-Counting-in-Real-Time), MIT.
 - `mars-small128`: modelo de re-identificación de [Deep SORT](https://github.com/nwojke/deep_sort), GPL-3.0. No se incluye en el repositorio; lo descarga `scripts/descargar_modelos.sh`.
+- `yolo11n`: detector de [Ultralytics](https://github.com/ultralytics/ultralytics), AGPL-3.0 (para uso comercial cerrado hace falta su licencia empresarial).
+- [ONNX Runtime Web](https://github.com/microsoft/onnxruntime) 1.17.3, MIT, para ejecutar los modelos en el navegador.
