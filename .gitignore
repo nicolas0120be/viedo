@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.venv/
+salida/
+data/*.mp4
+*.pt
