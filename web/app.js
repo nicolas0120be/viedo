@@ -36,6 +36,8 @@
     analisis: [],            // [{id, creado, nombre, camara, inicio, duracion, conteo, unicos, datos?}]
     camaras: [],             // [{id, nombre, ancho, alto, config}]
     ticketsCsv: "",
+    pruebas: [],             // registro de pruebas [{id, fecha, version, video, ajustes, total, unicos, reales, aprox, fusiones, segundos, notas, creado}]
+    editando: null,
     actual: null,            // id del análisis mostrado
     registros: new Map(),    // id -> registro de cajas para revisar (solo en memoria)
     video: null,             // {archivo|url, nombre, ancho, alto, duracion, fondo canvas}
@@ -47,8 +49,9 @@
   /* ------------------------------------------------------- navegación */
   function irA(sec) {
     document.querySelectorAll("nav button[data-sec]").forEach((b) => b.setAttribute("aria-current", String(b.dataset.sec === sec)));
-    ["ana", "res", "ven"].forEach((s) => ($("sec-" + s).hidden = s !== sec));
+    ["ana", "res", "ven", "pru"].forEach((s) => ($("sec-" + s).hidden = s !== sec));
     if (sec === "res") pintarResultados();
+    if (sec === "pru") pintarPruebas();
     if (sec === "ven") pintarVentas();
   }
   document.querySelectorAll("nav button[data-sec]").forEach((b) => b.addEventListener("click", () => irA(b.dataset.sec)));
@@ -67,6 +70,11 @@
       if (!db) return;
       S.db = db;
       const [an, cam, ven] = await Promise.all([db.collection("analisis").get(), db.collection("camaras").get(), db.doc("ventas/tickets").get()]);
+      db.collection("pruebas").onSnapshot((q) => {
+        const locales = S.pruebas.filter((p) => p.soloLocal);
+        S.pruebas = [...locales, ...q.docs.map((d) => ({ id: d.id, ...d.data() }))];
+        if (!$("sec-pru").hidden) pintarPruebas();
+      }, (e) => console.warn("pruebas", e));
       const previos = S.analisis.filter((a) => a.soloLocal);
       S.analisis = [...previos, ...an.docs.map((d) => ({ id: d.id, ...d.data() }))].sort((x, y) => (y.creado > x.creado ? 1 : -1));
       S.camaras = cam.docs.map((d) => ({ id: d.id, ...d.data(), config: JSON.parse(d.data().datos) }));
@@ -74,6 +82,7 @@
       pintarPlantillas(); pintarSelector();
       if (!$("sec-res").hidden) pintarResultados();
       if (!$("sec-ven").hidden) pintarVentas();
+      if (!S.puedeEscribir) $("f-prueba").hidden = true;
     } catch (e) { console.warn("datos", e); }
   }
   async function guardar(ruta, cuerpo) {
@@ -683,8 +692,83 @@
     $("b-borrar-ok").hidden = true; $("msg-borrar").textContent = ""; pintarResultados();
   };
 
+
+  /* ------------------------------------------------- registro de pruebas */
+  const CAMPOS = ["fecha", "version", "video", "ajustes", "total", "unicos", "reales", "fusiones", "segundos", "notas"];
+  const NUM = new Set(["total", "unicos", "reales", "fusiones", "segundos"]);
+  function hoy() { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+  function rellenarForm(p) {
+    CAMPOS.forEach((c) => ($("p-" + c).value = p[c] ?? ""));
+    $("p-aprox").checked = !!p.aprox;
+  }
+  function limpiarForm() {
+    S.editando = null; rellenarForm({ fecha: hoy(), version: "Navegador", fusiones: 0 });
+    $("f-titulo").textContent = "Añadir prueba"; $("b-p-cancelar").hidden = true;
+  }
+  function pintarPruebas() {
+    const ps = [...S.pruebas].sort((a, b) => (b.fecha + (b.creado || "")).localeCompare(a.fecha + (a.creado || "")));
+    const conReal = ps.filter((p) => Number.isFinite(p.reales) && Number.isFinite(p.unicos));
+    const exactas = conReal.filter((p) => p.unicos === p.reales).length;
+    const errMedio = conReal.length ? conReal.reduce((s, p) => s + Math.abs(p.unicos - p.reales), 0) / conReal.length : 0;
+    const fus = ps.reduce((s, p) => s + (p.fusiones || 0), 0);
+    kpis($("kpis-p"), [
+      { l: "Pruebas", v: fmtN(ps.length) },
+      { l: "Únicos exactos", v: conReal.length ? fmtPct(exactas / conReal.length) : "—", s: `${exactas} de ${conReal.length} con conteo manual`, hl: true },
+      { l: "Error medio", v: conReal.length ? fmtN(errMedio, 1) : "—", s: "clientes de diferencia por vídeo" },
+      { l: "Fusiones erróneas", v: fmtN(fus), s: "en todas las pruebas" },
+    ]);
+    const el = $("t-pruebas");
+    if (!ps.length) { el.innerHTML = '<tr><td class="hint">Aún no hay pruebas anotadas.</td></tr>'; return; }
+    const puede = S.puedeEscribir;
+    el.innerHTML = "<thead><tr><th>Fecha</th><th>Versión</th><th>Vídeo</th><th>Ajustes</th><th class=num>Conteo total</th><th class=num>Únicos</th><th class=num>Reales</th><th class=num>Diferencia</th><th class=num>Fusiones erróneas</th><th class=num>Tiempo</th><th>Notas</th>" + (puede ? "<th></th>" : "") + "</tr></thead><tbody>" +
+      ps.map((p) => {
+        const dif = Number.isFinite(p.reales) && Number.isFinite(p.unicos) ? p.unicos - p.reales : null;
+        const difTxt = dif === null ? "—" : `<span class="${dif === 0 ? "dif-0" : "dif-x"}">${dif > 0 ? "+" : ""}${dif}</span>`;
+        const f = new Date(p.fecha + "T12:00:00");
+        return `<tr><td>${esc(isNaN(f) ? p.fecha : fmtFecha(f))}</td><td>${esc(p.version)}</td><td>${esc(p.video)}</td><td>${esc(p.ajustes)}</td><td class=num>${esc(p.total ?? "—")}</td><td class=num>${esc(p.unicos ?? "—")}</td><td class=num>${p.aprox ? "~" : ""}${esc(p.reales ?? "—")}</td><td class=num>${difTxt}</td><td class=num>${esc(p.fusiones ?? "—")}</td><td class=num>${p.segundos ? esc(fmtDur(p.segundos)) : "—"}</td><td class="wrap">${esc(p.notas)}</td>` +
+          (puede ? `<td><div class="row" style="flex-wrap:nowrap;gap:6px"><button class="btn small" data-ed="${esc(p.id)}">Editar</button><button class="btn small" data-bo="${esc(p.id)}">Borrar</button></div></td>` : "") + "</tr>";
+      }).join("") + "</tbody>";
+    el.querySelectorAll("[data-ed]").forEach((b) => (b.onclick = () => {
+      const p = S.pruebas.find((x) => x.id === b.dataset.ed); if (!p) return;
+      S.editando = p.id; rellenarForm(p); $("f-titulo").textContent = "Editar prueba"; $("b-p-cancelar").hidden = false;
+      $("f-prueba").scrollIntoView({ behavior: "smooth", block: "start" });
+    }));
+    el.querySelectorAll("[data-bo]").forEach((b) => (b.onclick = async () => {
+      if (b.dataset.ok !== "1") { b.dataset.ok = "1"; b.textContent = "¿Seguro?"; return; }
+      const p = S.pruebas.find((x) => x.id === b.dataset.bo); if (!p) return;
+      if (S.db && !p.soloLocal) { try { await S.db.doc("pruebas/" + p.id).delete(); } catch (e) { $("msg-p").textContent = "No se pudo borrar."; return; } }
+      S.pruebas = S.pruebas.filter((x) => x.id !== p.id); pintarPruebas();
+    }));
+  }
+  $("b-p-guardar").onclick = async () => {
+    const p = {};
+    for (const c of CAMPOS) { const v = $("p-" + c).value.trim(); p[c] = NUM.has(c) ? (v === "" ? null : Number(v)) : v; }
+    p.aprox = $("p-aprox").checked;
+    if (!p.video) { $("msg-p").textContent = "Falta el nombre del vídeo."; return; }
+    const previa = S.editando && S.pruebas.find((x) => x.id === S.editando);
+    const id = previa ? previa.id : "p" + Date.now().toString(36);
+    p.creado = previa ? previa.creado : new Date().toISOString();
+    const ok = await guardar("pruebas/" + id, p);
+    S.pruebas = S.pruebas.filter((x) => x.id !== id).concat([{ id, ...p, soloLocal: !ok }]);
+    $("msg-p").textContent = ok ? "Guardada." : "Guardada solo mientras esta página siga abierta.";
+    limpiarForm(); pintarPruebas();
+  };
+  $("b-p-cancelar").onclick = () => { limpiarForm(); $("msg-p").textContent = ""; };
+  $("b-anotar").onclick = () => {
+    const a = datosDe(S.actual); if (!a) return;
+    const unicos = new Set(a.trayectos.map((t) => t.persona)).size;
+    limpiarForm();
+    rellenarForm({
+      fecha: hoy(), version: "Navegador", video: a.nombre, total: a.trayectos.length, unicos, fusiones: 0, segundos: a.segundosProceso,
+      ajustes: `${a.ajustes.fps} fotogramas/s, visita mínima ${a.config.min_segundos_visita} s`,
+    });
+    irA("pru");
+    $("msg-p").textContent = "Cuenta las personas reales en el vídeo, revisa las fusiones y guarda.";
+    $("p-reales").focus();
+  };
+
   /* ----------------------------------------------------------- arranque */
   window.App = { analizar, estadisticas: Motor.estadisticas, EJEMPLO, S, crearMotor };
-  pintarPlantillas(); pintarVentas(); pintarSelector();
+  pintarPlantillas(); pintarVentas(); pintarSelector(); limpiarForm(); pintarPruebas();
   iniciarDatos();
 })();

@@ -62,6 +62,7 @@ input[type=text],input[type=date],input[type=time],input[type=number],select{fon
 .progreso{height:8px;background:var(--sunk);border-radius:99px;overflow:hidden}
 .progreso div{height:100%;background:var(--accent);width:0;transition:width .2s}
 .kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.kpis.k4{grid-template-columns:repeat(4,minmax(0,1fr))} .kpis.k3{grid-template-columns:repeat(3,minmax(0,1fr))}
 .kpi{background:var(--surface);padding:14px 16px;display:flex;flex-direction:column;gap:4px;min-width:0}
 .kpi .l{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
 .kpi .v{font-family:var(--font-data);font-size:24px;font-weight:600;font-variant-numeric:tabular-nums}
@@ -89,6 +90,7 @@ tr:last-child td{border-bottom:none}
 td.num,th.num{font-family:var(--font-data);text-align:right;font-variant-numeric:tabular-nums}
 td.wrap{white-space:normal;min-width:220px}
 .chip{display:inline-block;padding:1px 8px;border-radius:99px;background:var(--accent-soft);color:var(--accent);font-family:var(--font-data);font-size:12.5px;font-weight:600}
+.dif-0{color:var(--good)} .dif-x{color:var(--warn)}
 .chip.multi{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
 .empty{color:var(--muted);font-size:14px;padding:14px;border:1px dashed var(--line);border-radius:10px}
 .media{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:16px;align-items:start}
@@ -104,7 +106,7 @@ figcaption{color:var(--muted);font-size:13px}
   nav{flex-direction:row;flex-wrap:wrap;border-right:none;border-bottom:1px solid var(--line);padding:14px 16px}
   nav .brand{width:100%;margin-bottom:4px} nav .foot{display:none}
   main{padding-inline:16px}
-  .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .kpis,.kpis.k4{grid-template-columns:repeat(2,minmax(0,1fr))} .kpis.k3{grid-template-columns:1fr}
   .two{grid-template-columns:1fr}
   .frow{grid-template-columns:110px minmax(0,1fr) 40px}
 }
@@ -115,6 +117,7 @@ figcaption{color:var(--muted);font-size:13px}
   <button data-sec="ana" aria-current="true">Analizar vídeo</button>
   <button data-sec="res">Resultados</button>
   <button data-sec="ven">Ventas</button>
+  <button data-sec="pru">Pruebas</button>
   <div class="foot">El vídeo se analiza en tu navegador y no sale de tu equipo. Solo se guardan posiciones, tiempos y un número por cliente; nunca imágenes de personas.</div>
 </nav>
 <main>
@@ -244,7 +247,7 @@ figcaption{color:var(--muted);font-size:13px}
       <div class="visor" id="visor" hidden><video id="v-rev" controls muted playsinline></video><canvas id="cv-rev"></canvas></div>
       <div class="leyenda"><span>Pn = cliente único</span><span>gris = tramo corto, no cuenta</span></div>
     </div>
-    <div class="row"><button class="btn small" id="b-borrar">Borrar este análisis</button><button class="btn small" id="b-borrar-ok" hidden>Sí, borrar</button><span class="hint" id="msg-borrar"></span></div>
+    <div class="row"><button class="btn small" id="b-anotar">Anotar en el registro de pruebas</button><button class="btn small" id="b-borrar">Borrar este análisis</button><button class="btn small" id="b-borrar-ok" hidden>Sí, borrar</button><span class="hint" id="msg-borrar"></span></div>
   </div>
 </section>
 
@@ -258,11 +261,36 @@ figcaption{color:var(--muted);font-size:13px}
     <button class="btn small" id="b-tk-ejemplo">Cargar tickets de ejemplo</button>
     <span class="hint" id="msg-tickets"></span>
   </div>
-  <div class="kpis" id="kpis-v" style="grid-template-columns:repeat(3,minmax(0,1fr))"></div>
+  <div class="kpis k3" id="kpis-v"></div>
   <div class="two">
     <div class="stack"><h2>Por categoría</h2><div class="tbl"><table id="t-cat"></table></div></div>
     <div class="stack"><h2>Tickets</h2><div class="tbl" style="max-height:420px;overflow:auto"><table id="t-tickets"></table></div></div>
   </div>
+</section>
+
+<!-- ============================================================ PRUEBAS -->
+<section id="sec-pru" class="panel" hidden>
+  <div class="stack"><h1>Registro de pruebas</h1>
+  <p class="hint">Cada prueba compara lo que contó la herramienta con el conteo manual del mismo vídeo. «Fusiones erróneas» son las veces que juntó a dos personas distintas en una: es el error más grave, porque esconde clientes.</p></div>
+  <div class="kpis k4" id="kpis-p"></div>
+  <div class="card" id="f-prueba">
+    <div class="row" style="justify-content:space-between"><h2 id="f-titulo">Añadir prueba</h2><span class="hint">Para anotar un análisis, ábrelo en Resultados y pulsa «Anotar en el registro de pruebas».</span></div>
+    <div class="grid2">
+      <label class="f">Fecha<input type="date" id="p-fecha"></label>
+      <label class="f">Versión<select id="p-version"><option>Navegador</option><option>Python</option></select></label>
+      <label class="f">Vídeo<input type="text" id="p-video" placeholder="Ej. Entrada tienda centro"></label>
+      <label class="f">Ajustes<input type="text" id="p-ajustes" placeholder="Ej. 8 fotogramas/s"></label>
+      <label class="f">Conteo total<input type="number" id="p-total" min="0"></label>
+      <label class="f">Clientes únicos<input type="number" id="p-unicos" min="0"></label>
+      <label class="f">Personas reales (conteo manual)<input type="number" id="p-reales" min="0"></label>
+      <label class="f">Fusiones erróneas<input type="number" id="p-fusiones" min="0" value="0"></label>
+      <label class="f">Tiempo de análisis (s)<input type="number" id="p-segundos" min="0"></label>
+      <label class="f" style="grid-column:1 / -1">Notas<input type="text" id="p-notas" placeholder="Qué se observó"></label>
+    </div>
+    <label class="row" style="gap:6px;font-size:13px;color:var(--muted)"><input type="checkbox" id="p-aprox"> El conteo manual es aproximado</label>
+    <div class="row"><button class="btn primary" id="b-p-guardar">Guardar prueba</button><button class="btn small" id="b-p-cancelar" hidden>Cancelar edición</button><span class="hint" id="msg-p"></span></div>
+  </div>
+  <div class="tbl"><table id="t-pruebas"></table></div>
 </section>
 
 </main>
