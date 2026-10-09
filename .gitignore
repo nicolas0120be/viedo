@@ -4,3 +4,5 @@ __pycache__/
 salida/
 data/*.mp4
 *.pt
+datos_app/
+modelos/

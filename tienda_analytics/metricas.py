@@ -34,7 +34,8 @@ class MetricaZona:
 class Resumen:
     desde: str
     hasta: str
-    visitantes: int
+    conteo_total: int       # trayectos contados (una persona puede sumar varios)
+    visitantes: int         # personas únicas tras re-identificación
     interactuaron: int
     tickets: int
     importe_total: float
@@ -69,24 +70,26 @@ def _tasa(a: float, b: float) -> float:
 def calcular(eventos: str | Path, tickets_csv: str | Path | None, config_ruta: str | Path) -> Resumen:
     config = cargar_config(config_ruta)
     con = sqlite3.connect(eventos)
-    visitas = con.execute("SELECT id, inicio, fin FROM visitas").fetchall()
+    visitas = con.execute("SELECT id, persona_id, inicio, fin FROM visitas").fetchall()
     estancias = con.execute("SELECT visita_id, zona, categoria, segundos FROM estancias").fetchall()
     cruces = con.execute("SELECT linea, COUNT(*) FROM cruces GROUP BY linea").fetchall()
     con.close()
 
     if visitas:
-        desde = min(datetime.fromisoformat(v[1]) for v in visitas)
-        hasta = max(datetime.fromisoformat(v[2]) for v in visitas)
+        desde = min(datetime.fromisoformat(v[2]) for v in visitas)
+        hasta = max(datetime.fromisoformat(v[3]) for v in visitas)
     else:
         desde = hasta = config.video_inicio
     tickets = leer_tickets(tickets_csv, desde, hasta) if tickets_csv else []
 
-    n_visitas = len(visitas)
-    # Tiempo total por visita y zona (una persona puede entrar y salir varias veces).
+    persona_de = {v[0]: (v[1] if v[1] is not None else v[0]) for v in visitas}
+    n_visitas = len(set(persona_de.values()))
+    # Tiempo total por persona y zona (una persona puede entrar y salir varias veces).
     por_zona: dict[str, dict[int, float]] = {z.nombre: {} for z in config.zonas}
     for visita_id, zona, _, seg in estancias:
+        persona = persona_de.get(visita_id, visita_id)
         por_zona.setdefault(zona, {})
-        por_zona[zona][visita_id] = por_zona[zona].get(visita_id, 0.0) + seg
+        por_zona[zona][persona] = por_zona[zona].get(persona, 0.0) + seg
 
     umbral = config.interaccion_segundos
     interactuaron = {
@@ -109,7 +112,7 @@ def calcular(eventos: str | Path, tickets_csv: str | Path | None, config_ruta: s
 
     importe = round(sum(t["importe"] for t in tickets), 2)
     embudo = [
-        {"etapa": "Visitantes", "personas": n_visitas},
+        {"etapa": "Visitantes únicos", "personas": n_visitas},
         {"etapa": f"Se detuvieron ≥{umbral:g} s en una zona", "personas": len(interactuaron)},
         {"etapa": "Compraron (tickets)", "personas": len(tickets)},
     ]
@@ -119,6 +122,7 @@ def calcular(eventos: str | Path, tickets_csv: str | Path | None, config_ruta: s
     return Resumen(
         desde=desde.isoformat(timespec="seconds"),
         hasta=hasta.isoformat(timespec="seconds"),
+        conteo_total=len(visitas),
         visitantes=n_visitas,
         interactuaron=len(interactuaron),
         tickets=len(tickets),

@@ -3,5 +3,7 @@ opencv-python>=4.9
 lap>=0.5
 numpy
 pandas
+onnxruntime>=1.18
+imageio-ffmpeg
 streamlit>=1.40
 pytest
