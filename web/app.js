@@ -836,7 +836,7 @@
           <p class="hint">${esc(b.descripcion)}</p>
           <div class="vreal"><span class="chip">${esc(real)}</span></div>
           <div class="vres">${res}</div>
-          <div class="row"><button class="btn small primary" data-an="${esc(b.id)}">Analizar</button><button class="btn small" data-ver="${esc(b.id)}">Ver vídeo</button></div>
+          <div class="row"><button class="btn small primary" data-an="${esc(b.id)}">Analizar</button><button class="btn small" data-ver="${esc(b.id)}">Ver vídeo</button><button class="btn small" data-entrenar="${esc(b.id)}">Entrenar</button></div>
           <p class="vfuente">${esc(b.fuente)} · ${esc(b.licencia)}</p>
         </div></article>`;
     }).join("");
@@ -847,6 +847,7 @@
       const v = document.createElement("video"); v.src = BASE + b.archivo; v.controls = true; v.autoplay = true; v.muted = true; v.playsInline = true;
       th.querySelector("img").hidden = true; th.prepend(v); bt.textContent = "Cerrar vídeo";
     }));
+    el.querySelectorAll("[data-entrenar]").forEach((bt) => (bt.onclick = () => { irA("ent"); $("ent-otro").onclick(); abrirDeBiblioteca(bt.dataset.entrenar, null); }));
     el.querySelectorAll("[data-an]").forEach((bt) => (bt.onclick = async () => {
       const b = BIBLIOTECA.find((x) => x.id === bt.dataset.an), txt = bt.textContent;
       bt.textContent = "Descargando…"; bt.disabled = true;
@@ -870,14 +871,38 @@
 
   function pintarEntrenos() {
     const el = $("ent-previos"); if (!el) return;
-    const sel = $("ent-bib");
-    if (sel.options.length <= 1) BIBLIOTECA.forEach((b) => sel.insertAdjacentHTML("beforeend", `<option value="${esc(b.id)}">${esc(b.nombre)}</option>`));
+    pintarBibEnt();
     if (!S.entrenos.length) { el.innerHTML = ""; return; }
     el.innerHTML = '<h3 style="margin-top:6px">Vídeos ya revisados</h3><div class="tbl"><table><thead><tr><th>Vídeo</th><th class=num>Fotogramas</th><th class=num>Personas</th><th>Última revisión</th></tr></thead><tbody>' +
       S.entrenos.map((d) => {
         let n = 0, p = 0; try { const fs = JSON.parse(d.fotogramas); n = fs.length; fs.forEach((f) => (p += f.cajas.filter((c) => c[6] === "si").length)); } catch (_) {}
         return `<tr><td>${esc(d.nombre)}</td><td class=num>${n}</td><td class=num>${p}</td><td>${d.actualizado ? esc(fmtFecha(new Date(d.actualizado))) : "—"}</td></tr>`;
       }).join("") + '</tbody></table></div><p class="hint">Para seguir revisando uno de ellos, vuelve a abrir el mismo vídeo: sus fotogramas revisados se recuperan solos.</p>';
+  }
+
+  function revisadosDe(nombre, ancho, alto) {
+    const d = S.entrenos.find((x) => x.nombre === nombre && (!ancho || (x.ancho === ancho && x.alto === alto)));
+    try { return d ? JSON.parse(d.fotogramas).length : 0; } catch (_) { return 0; }
+  }
+  function pintarBibEnt() {
+    const el = $("ent-biblio"); if (!el) return;
+    el.innerHTML = BIBLIOTECA.map((b) => {
+      const n = revisadosDe(b.nombre);
+      return `<button class="ecard" data-ent="${esc(b.id)}">
+        <span class="vthumb"><img src="${esc(BASE + b.miniatura)}" alt="" loading="lazy"><span class="vtipo t-${esc(b.tipo)}">${esc(TIPOS[b.tipo] || b.tipo)}</span><span class="vdur">${esc(fmtDur(b.duracion))}</span></span>
+        <span class="ebody"><b>${esc(b.nombre)}</b><span class="hint">${n ? `${n} fotogramas revisados` : "Sin revisar"}</span></span></button>`;
+    }).join("");
+    el.querySelectorAll("[data-ent]").forEach((bt) => (bt.onclick = () => abrirDeBiblioteca(bt.dataset.ent, bt)));
+  }
+  async function abrirDeBiblioteca(id, bt) {
+    const b = BIBLIOTECA.find((x) => x.id === id); if (!b) return;
+    const txt = bt && bt.querySelector(".hint"), antes = txt && txt.textContent;
+    if (txt) txt.textContent = "Descargando…";
+    try {
+      const r = await fetch(BASE + b.archivo); if (!r.ok) throw new Error("HTTP " + r.status);
+      await abrirEntreno(URL.createObjectURL(await r.blob()), b.nombre);
+    } catch (e) { $("ent-msg-err").textContent = "No se pudo descargar el vídeo: " + e.message; $("ent-msg-err").hidden = false; }
+    if (txt) txt.textContent = antes;
   }
 
   async function abrirEntreno(url, nombre) {
@@ -895,7 +920,7 @@
     $("ent-info").textContent = `${E.ancho}×${E.alto} · ${fmtDur(E.duracion)}` + (E.fotos.size ? ` · ${E.fotos.size} fotogramas ya revisados` : "");
     const r = $("ent-t"); r.max = String(Math.max(0, E.duracion - 0.05)); r.value = "0";
     v.defaultPlaybackRate = v.playbackRate = +$("ent-vel").value;
-    $("ent-subir").hidden = true; $("ent-trabajo").hidden = false;
+    $("ent-subir").hidden = $("ent-bib-bloque").hidden = $("ent-previos").hidden = true; $("ent-trabajo").hidden = false;
     pintarListaEnt(); resumenEnt();
     await irAEnt(0);
   }
@@ -1108,13 +1133,6 @@
   };
 
   $("ent-in").onchange = (e) => { const f = e.target.files[0]; if (f) abrirEntreno(URL.createObjectURL(f), f.name); e.target.value = ""; };
-  $("ent-bib").onchange = async () => {
-    const b = BIBLIOTECA.find((x) => x.id === $("ent-bib").value); if (!b) return;
-    $("ent-bib").disabled = true;
-    try { const r = await fetch(BASE + b.archivo); if (!r.ok) throw new Error("HTTP " + r.status); await abrirEntreno(URL.createObjectURL(await r.blob()), b.nombre); }
-    catch (e) { $("ent-msg-err").textContent = "No se pudo descargar el vídeo: " + e.message; $("ent-msg-err").hidden = false; }
-    $("ent-bib").disabled = false; $("ent-bib").value = "";
-  };
   const dropEnt = $("ent-subir");
   dropEnt.addEventListener("dragover", (e) => { e.preventDefault(); dropEnt.classList.add("over"); });
   dropEnt.addEventListener("dragleave", () => dropEnt.classList.remove("over"));
@@ -1123,7 +1141,7 @@
     const f = [...e.dataTransfer.files].find((x) => x.type.startsWith("video/") || /\.(mp4|webm|mov|m4v)$/i.test(x.name));
     if (f) abrirEntreno(URL.createObjectURL(f), f.name);
   });
-  $("ent-otro").onclick = () => { pararEnt(); E.buscando++; if (E.v) E.v.remove(); E.v = null; $("ent-trabajo").hidden = true; $("ent-subir").hidden = false; pintarEntrenos(); };
+  $("ent-otro").onclick = () => { pararEnt(); E.buscando++; if (E.v) E.v.remove(); E.v = null; $("ent-trabajo").hidden = true; $("ent-subir").hidden = $("ent-bib-bloque").hidden = $("ent-previos").hidden = false; pintarEntrenos(); };
 
   /* ----------------------------------------------------------- arranque */
   window.App = { analizar, estadisticas: Motor.estadisticas, EJEMPLO, BIBLIOTECA, S, crearMotor };
