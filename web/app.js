@@ -28,6 +28,23 @@
       interaccion_segundos: 3, min_segundos_visita: 1,
     },
   };
+  /* Vídeos de prueba publicados junto a la página, con su conteo manual de personas reales.
+     tipo: tienda | validacion | estres | control. reales: null mientras no haya conteo manual. */
+  const BIBLIOTECA = [
+    {"id": "pasillo-tienda", "nombre": "Pasillo de menaje", "alias": ["Pasillo de menaje (vídeo de ejemplo)", "Pasillo de menaje (ejemplo)", "store-aisle-detection.mp4"], "tipo": "tienda", "archivo": "ejemplo.mp4", "miniatura": "mini/pasillo-tienda.jpg", "duracion": 65.4, "reales": 6, "aprox": false, "plantilla": "ejemplo", "inicio": "2026-10-09T11:00:00", "descripcion": "Cámara alta sobre un pasillo con clientes que se cruzan, se paran y vuelven a aparecer. Prueba principal de clientes únicos.", "fuente": "Intel IoT DevKit, sample-videos", "licencia": "CC BY 4.0"},
+    {"id": "entrada-tienda-calle", "nombre": "Puerta de tienda desde la calle", "tipo": "tienda", "archivo": "videos/entrada-tienda-calle.mp4", "miniatura": "mini/entrada-tienda-calle.jpg", "duracion": 19.7, "reales": 5, "aprox": false, "descripcion": "Puerta de un supermercado vista desde la acera: cuatro personas entran y una sale. Sirve para probar entradas y salidas con una línea.", "fuente": "Repositorio Amal-Emad/Detection-TrackingYolov8", "licencia": "Licencia no declarada: solo pruebas internas"},
+    {"id": "entrada-cenital", "nombre": "Entrada vista desde arriba", "tipo": "tienda", "archivo": "videos/entrada-cenital.mp4", "miniatura": "mini/entrada-cenital.jpg", "duracion": 42.8, "reales": 10, "aprox": true, "descripcion": "Cámara cenital en una entrada, como las de conteo de puerta. Las personas se ven pequeñas y desde arriba.", "fuente": "Repositorio saimj7/People-Counting-in-Real-Time", "licencia": "Código MIT; origen del vídeo no declarado"},
+    {"id": "personas-cruzando", "nombre": "Personas cruzando", "tipo": "validacion", "archivo": "videos/personas-cruzando.mp4", "miniatura": "mini/personas-cruzando.jpg", "duracion": 49.7, "reales": 7, "aprox": false, "descripcion": "Personas que cruzan la imagen solas o en grupo. Comprueba que no se junta a personas distintas.", "fuente": "Intel IoT DevKit, sample-videos", "licencia": "CC BY 4.0"},
+    {"id": "una-a-una", "nombre": "Una persona cada vez", "tipo": "validacion", "archivo": "videos/una-a-una.mp4", "miniatura": "mini/una-a-una.jpg", "duracion": 139.4, "reales": 6, "aprox": false, "descripcion": "Seis personas pasan de una en una. Caso fácil: cualquier error aquí es grave.", "fuente": "Intel IoT DevKit, sample-videos", "licencia": "CC BY 4.0"},
+    {"id": "caminar-y-pausa", "nombre": "Caminan, se paran y se van", "tipo": "validacion", "archivo": "videos/caminar-y-pausa.mp4", "miniatura": "mini/caminar-y-pausa.jpg", "duracion": 90.9, "reales": 7, "aprox": false, "descripcion": "Siete personas se acercan a la cámara, se quedan quietas unos segundos y salen. Mide el tiempo de permanencia y las personas muy cerca de la cámara.", "fuente": "Intel IoT DevKit, sample-videos", "licencia": "CC BY 4.0"},
+    {"id": "caminar-hacia-camara", "nombre": "Caminan hacia la cámara", "tipo": "validacion", "archivo": "videos/caminar-hacia-camara.mp4", "miniatura": "mini/caminar-hacia-camara.jpg", "duracion": 61.0, "reales": 7, "aprox": false, "descripcion": "Las mismas siete personas, sin pararse. Comparar con el vídeo anterior muestra cuánto afectan las paradas.", "fuente": "Intel IoT DevKit, sample-videos", "licencia": "CC BY 4.0"},
+    {"id": "zona-trabajo", "nombre": "Operarios con chaleco", "tipo": "validacion", "archivo": "videos/zona-trabajo.mp4", "miniatura": "mini/zona-trabajo.jpg", "duracion": 75.9, "reales": 4, "aprox": true, "descripcion": "Personas vestidas casi igual (chaleco naranja y casco) que salen y vuelven. Es el caso más difícil para reconocer a quien vuelve: como un equipo con uniforme.", "fuente": "Intel IoT DevKit, sample-videos", "licencia": "CC BY 4.0"},
+    {"id": "aula-sentados", "nombre": "Personas sentadas", "tipo": "validacion", "archivo": "videos/aula-sentados.mp4", "miniatura": "mini/aula-sentados.jpg", "duracion": 32.8, "reales": 4, "aprox": false, "descripcion": "Cuatro personas casi quietas todo el vídeo; una se levanta y vuelve a sentarse. Como una cola o una caja: nadie debería contarse dos veces.", "fuente": "Intel IoT DevKit, sample-videos", "licencia": "CC BY 4.0"},
+    {"id": "mercadillo-multitud", "nombre": "Mercadillo con mucha gente", "tipo": "estres", "archivo": "videos/mercadillo-multitud.mp4", "miniatura": "mini/mercadillo-multitud.jpg", "duracion": 23.5, "reales": null, "aprox": true, "descripcion": "Calle de puestos con decenas de personas a la vez. Sin conteo manual: sirve para ver cómo se comporta con mucha gente y cuánto tarda.", "fuente": "Repositorio Boo4kin/people-detection-yolo", "licencia": "Licencia no declarada: solo pruebas internas"},
+    {"id": "cinta-sin-personas", "nombre": "Vídeo sin personas", "tipo": "control", "archivo": "videos/cinta-sin-personas.mp4", "miniatura": "mini/cinta-sin-personas.jpg", "duracion": 60.6, "reales": 0, "aprox": false, "descripcion": "Fruta y verdura pasando por una cinta. No hay nadie: cualquier persona detectada es una falsa alarma.", "fuente": "Intel IoT DevKit, sample-videos", "licencia": "CC BY 4.0"}
+  ];
+  const TIPOS = { tienda: "Tienda", validacion: "Validación", estres: "Estrés", control: "Control" };
+
   const TICKETS_EJEMPLO = "ticket_id,fecha_hora,importe,categorias\nT-1001,2026-10-09T11:00:21,18.50,vajilla\nT-1002,2026-10-09T11:00:38,42.90,cuencos;vajilla\nT-1003,2026-10-09T11:00:52,12.00,cuencos\nT-1004,2026-10-09T11:01:03,27.40,teteras\n";
 
   /* ------------------------------------------------------------ estado */
@@ -51,7 +68,7 @@
     document.querySelectorAll("nav button[data-sec]").forEach((b) => b.setAttribute("aria-current", String(b.dataset.sec === sec)));
     ["ana", "res", "ven", "pru"].forEach((s) => ($("sec-" + s).hidden = s !== sec));
     if (sec === "res") pintarResultados();
-    if (sec === "pru") pintarPruebas();
+    if (sec === "pru") { pintarPruebas(); pintarBiblioteca(); }
     if (sec === "ven") pintarVentas();
   }
   document.querySelectorAll("nav button[data-sec]").forEach((b) => b.addEventListener("click", () => irA(b.dataset.sec)));
@@ -203,6 +220,8 @@
 
     const validos = {};
     for (const tr of reg.tr.values()) if (tr.t1 - tr.t0 >= config.min_segundos_visita) validos[tr.id] = [tr.t0, tr.t1];
+    const duplicados = Motor.duplicados(registro, validos);
+    for (const id of duplicados) delete validos[id];
     const personas = Motor.agrupar(validos, ajustes.reid === false ? null : reid);
     const r2 = (x) => Math.round(x * 100) / 100;
     const trayectos = [...reg.tr.values()].filter((tr) => validos[tr.id]).map((tr) => ({
@@ -220,14 +239,14 @@
       fondoUrl = c2.toDataURL("image/jpeg", 0.72);
     }
     const analisis = {
-      id: "a" + Date.now().toString(36), creado: new Date().toISOString(), nombre: meta.nombre, camara: meta.camara, inicio: meta.inicio,
+      id: "a" + Date.now().toString(36), creado: new Date().toISOString(), nombre: meta.nombre, camara: meta.camara, inicio: meta.inicio, biblio: meta.biblio || null,
       video: { ancho: W, alto: Hh, duracion: r2(dur) }, ajustes: { fps, reid: ajustes.reid !== false },
-      config, trayectos, descartados: reg.tr.size - trayectos.length, detectados: reg.tr.size,
+      config, trayectos, descartados: reg.tr.size - trayectos.length, duplicados: duplicados.length, detectados: reg.tr.size,
       calor: { gw: reg.gw, gh: reg.gh, v: Array.from(reg.calor) }, fondo: fondoUrl,
       segundosProceso: Math.round((performance.now() - t0) / 1000),
     };
     if (url.startsWith("blob:")) URL.revokeObjectURL(url);
-    return { analisis, registro, personas };
+    return { analisis, registro, personas, reid, validos };
   }
 
   /* ------------------------------------------------ dibujo de zonas */
@@ -420,7 +439,7 @@
     if (S.dib) terminarDibujo();
     const v = S.video; if (!v) return;
     const inicio = `${$("c-fecha").value || "2026-01-01"}T${($("c-hora").value || "00:00:00").padEnd(8, ":00").slice(0, 8)}`;
-    const meta = { nombre: v.nombre, camara: $("c-nombre").value.trim() || "Cámara", inicio };
+    const meta = { nombre: v.nombre, camara: $("c-nombre").value.trim() || "Cámara", inicio, biblio: v.biblio || null };
     const config = JSON.parse(JSON.stringify(S.config));
     S.cancelar = false;
     $("paso-config").hidden = true; $("paso-progreso").hidden = false; $("msg-error").hidden = true;
@@ -762,13 +781,62 @@
       fecha: hoy(), version: "Navegador", video: a.nombre, total: a.trayectos.length, unicos, fusiones: 0, segundos: a.segundosProceso,
       ajustes: `${a.ajustes.fps} fotogramas/s, visita mínima ${a.config.min_segundos_visita} s`,
     });
+    const vb = BIBLIOTECA.find((b) => b.id === a.biblio || b.nombre === a.nombre || (b.alias || []).includes(a.nombre));
+    if (vb && vb.reales !== null) { $("p-reales").value = vb.reales; $("p-aprox").checked = !!vb.aprox; }
     irA("pru");
-    $("msg-p").textContent = "Cuenta las personas reales en el vídeo, revisa las fusiones y guarda.";
+    $("msg-p").textContent = vb && vb.reales !== null ? "Las personas reales vienen del conteo manual del vídeo de prueba. Revisa las fusiones y guarda." : "Cuenta las personas reales en el vídeo, revisa las fusiones y guarda.";
     $("p-reales").focus();
   };
 
+  /* ------------------------------------------------- vídeos de prueba */
+  function ultimaPrueba(b) {
+    return S.pruebas.filter((p) => (p.video === b.nombre || (b.alias || []).includes(p.video)) && Number.isFinite(p.unicos))
+      .sort((x, y) => (y.fecha + (y.creado || "")).localeCompare(x.fecha + (x.creado || "")))[0];
+  }
+  function pintarBiblioteca() {
+    const el = $("biblio"); if (!el) return;
+    el.innerHTML = BIBLIOTECA.map((b) => {
+      const ult = ultimaPrueba(b);
+      const real = b.reales === null ? "sin conteo manual" : `${b.aprox ? "~" : ""}${b.reales} ${b.reales === 1 ? "persona real" : "personas reales"}`;
+      let res = '<span class="hint">Aún sin probar.</span>';
+      if (ult) {
+        const dif = Number.isFinite(ult.reales) ? ult.unicos - ult.reales : null;
+        res = `<span>Última prueba: <b>${ult.unicos}</b> únicos` + (dif === null ? "" : ` <span class="${dif === 0 ? "dif-0" : "dif-x"}">(${dif === 0 ? "exacto" : (dif > 0 ? "+" : "") + dif})</span>`) + "</span>";
+      }
+      return `<article class="vcard" data-b="${esc(b.id)}">
+        <div class="vthumb"><img src="${esc(BASE + b.miniatura)}" alt="" loading="lazy"><span class="vtipo t-${esc(b.tipo)}">${esc(TIPOS[b.tipo] || b.tipo)}</span><span class="vdur">${esc(fmtDur(b.duracion))}</span></div>
+        <div class="vbody">
+          <h4>${esc(b.nombre)}</h4>
+          <p class="hint">${esc(b.descripcion)}</p>
+          <div class="vreal"><span class="chip">${esc(real)}</span></div>
+          <div class="vres">${res}</div>
+          <div class="row"><button class="btn small primary" data-an="${esc(b.id)}">Analizar</button><button class="btn small" data-ver="${esc(b.id)}">Ver vídeo</button></div>
+          <p class="vfuente">${esc(b.fuente)} · ${esc(b.licencia)}</p>
+        </div></article>`;
+    }).join("");
+    el.querySelectorAll("[data-ver]").forEach((bt) => (bt.onclick = () => {
+      const card = bt.closest(".vcard"), b = BIBLIOTECA.find((x) => x.id === bt.dataset.ver), th = card.querySelector(".vthumb");
+      const vid = th.querySelector("video");
+      if (vid) { vid.remove(); th.querySelector("img").hidden = false; bt.textContent = "Ver vídeo"; return; }
+      const v = document.createElement("video"); v.src = BASE + b.archivo; v.controls = true; v.autoplay = true; v.muted = true; v.playsInline = true;
+      th.querySelector("img").hidden = true; th.prepend(v); bt.textContent = "Cerrar vídeo";
+    }));
+    el.querySelectorAll("[data-an]").forEach((bt) => (bt.onclick = async () => {
+      const b = BIBLIOTECA.find((x) => x.id === bt.dataset.an), txt = bt.textContent;
+      bt.textContent = "Descargando…"; bt.disabled = true;
+      try {
+        const r = await fetch(BASE + b.archivo); if (!r.ok) throw new Error("HTTP " + r.status);
+        irA("ana"); $("b-otro").onclick();
+        await cargarVideo(URL.createObjectURL(await r.blob()), b.nombre, b.inicio || null, b.plantilla || null);
+        if (S.video) S.video.biblio = b.id;
+        if (!$("c-nombre").value) $("c-nombre").value = b.nombre;
+      } catch (e) { irA("ana"); mostrarError("No se pudo descargar el vídeo de prueba: " + e.message); }
+      bt.textContent = txt; bt.disabled = false;
+    }));
+  }
+
   /* ----------------------------------------------------------- arranque */
-  window.App = { analizar, estadisticas: Motor.estadisticas, EJEMPLO, S, crearMotor };
-  pintarPlantillas(); pintarVentas(); pintarSelector(); limpiarForm(); pintarPruebas();
+  window.App = { analizar, estadisticas: Motor.estadisticas, EJEMPLO, BIBLIOTECA, S, crearMotor };
+  pintarPlantillas(); pintarVentas(); pintarSelector(); limpiarForm(); pintarPruebas(); pintarBiblioteca();
   iniciarDatos();
 })();

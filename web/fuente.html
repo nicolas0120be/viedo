@@ -92,6 +92,21 @@ td.wrap{white-space:normal;min-width:220px}
 .chip{display:inline-block;padding:1px 8px;border-radius:99px;background:var(--accent-soft);color:var(--accent);font-family:var(--font-data);font-size:12.5px;font-weight:600}
 .dif-0{color:var(--good)} .dif-x{color:var(--warn)}
 .chip.multi{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
+.biblio{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}
+.vcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;min-width:0}
+.vthumb{position:relative;aspect-ratio:16/9;background:var(--sunk);max-width:100%}
+.vthumb img,.vthumb video{width:100%;height:100%;object-fit:cover;display:block}
+.vthumb video{object-fit:contain;background:#000}
+.vtipo,.vdur{position:absolute;top:8px;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:99px;background:var(--surface);color:var(--fg);pointer-events:none}
+.vtipo{left:8px;text-transform:uppercase;letter-spacing:.05em}
+.vdur{right:8px;font-family:var(--font-data);top:auto;bottom:8px}
+.vtipo.t-tienda{background:var(--accent);color:var(--accent-fg)}
+.vtipo.t-estres{background:var(--warn);color:var(--surface)}
+.vbody{padding:12px 14px 14px;display:flex;flex-direction:column;gap:8px;flex:1}
+.vbody h4{margin:0;font-size:15px;font-weight:600}
+.vbody .hint{font-size:13px;margin:0}
+.vres{font-size:13px}
+.vfuente{margin:auto 0 0;color:var(--muted);font-size:11.5px;line-height:1.4}
 .empty{color:var(--muted);font-size:14px;padding:14px;border:1px dashed var(--line);border-radius:10px}
 .media{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:16px;align-items:start}
 figure{margin:0;display:flex;flex-direction:column;gap:6px;min-width:0}
@@ -270,7 +285,10 @@ figcaption{color:var(--muted);font-size:13px}
 
 <!-- ============================================================ PRUEBAS -->
 <section id="sec-pru" class="panel" hidden>
-  <div class="stack"><h1>Registro de pruebas</h1>
+  <div class="stack"><h1>Pruebas</h1>
+  <p class="hint">Vídeos con el número de personas reales contado a mano, para medir y entrenar el conteo. Pulsa «Analizar» y después «Anotar en el registro de pruebas»: las personas reales se rellenan solas.</p></div>
+  <div class="biblio" id="biblio"></div>
+  <div class="stack"><h2>Registro de pruebas</h2>
   <p class="hint">Cada prueba compara lo que contó la herramienta con el conteo manual del mismo vídeo. «Fusiones erróneas» son las veces que juntó a dos personas distintas en una: es el error más grave, porque esconde clientes.</p></div>
   <div class="kpis k4" id="kpis-p"></div>
   <div class="card" id="f-prueba">

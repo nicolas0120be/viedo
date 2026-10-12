@@ -214,7 +214,7 @@
 
   M.PARAMETROS_REID = {
     umbralCostura: 0.65, umbralReentrada: 0.93, colorReentrada: 0.3,
-    maxHuecoS: 2.0, maxSalto: 0.15, solapeMaxS: 0.5,
+    maxHuecoS: 2.0, maxSalto: 0.15, solapeMaxS: 1.0,
   };
 
   function norma(v) { let s = 0; for (const x of v) s += x * x; return Math.sqrt(s) + 1e-9; }
@@ -350,6 +350,27 @@
     }
   }
   M.Reidentificador = Reidentificador;
+
+  /* Trayectos duplicados: una segunda caja sobre la misma persona (o un trozo pegado a otra
+     caja) que pasa la mayor parte de su vida encima de un trayecto más largo. Devuelve sus ids.
+     registro: [[t, [[id, x1, y1, x2, y2], ...]], ...]; tramos: {id: [t0, t1]}. */
+  M.duplicados = function (registro, tramos, iouMin = 0.3, frac = 0.5) {
+    const dur = (id) => tramos[id][1] - tramos[id][0];
+    const vistos = {}, encima = {};
+    for (const [, ps] of registro) for (const [id, ...c] of ps) {
+      if (!tramos[id]) continue;
+      vistos[id] = (vistos[id] || 0) + 1;
+      for (const [o, ...d] of ps) if (o !== id && tramos[o] && dur(o) > dur(id) && M.iou(c, d) > iouMin) {
+        (encima[id] = encima[id] || {})[o] = (encima[id][o] || 0) + 1;
+      }
+    }
+    const fuera = new Set();
+    for (const id of Object.keys(tramos).map(Number).sort((a, b) => dur(a) - dur(b))) {
+      let n = 0; for (const [o, k] of Object.entries(encima[id] || {})) if (!fuera.has(+o)) n = Math.max(n, k);
+      if (vistos[id] && n / vistos[id] > frac) fuera.add(id);
+    }
+    return [...fuera];
+  };
 
   /* Id de persona (1, 2, ...) para cada trayecto {id: [t0, t1]}. Nunca une trayectos simultáneos. */
   M.agrupar = function (tramos, reid) {

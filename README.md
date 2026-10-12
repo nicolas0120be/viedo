@@ -67,6 +67,26 @@ Con los parámetros por defecto, frente a un conteo manual de cada vídeo:
 
 En el navegador (8 fotogramas por segundo) el resultado es el mismo en clientes únicos: pasillo 8, sala 7, sala uno a uno 6, entrada 8, sin fusiones erróneas, con menos tramos partidos en el pasillo (conteo total 9 frente a 12). En la entrada cenital hay unas 10 personas reales: dos cruzan en menos de 1 s y quedan fuera por la visita mínima; para cámaras de puerta conviene bajarla a 0,5 s.
 
+### Navegador, tras la calibración (octubre de 2026)
+
+El analizador del navegador descarta las cajas duplicadas: un trayecto que pasa más de la mitad de su tiempo encima de otro más largo (solape de cajas > 0,3). Además une los tramos de una misma persona aunque se solapen hasta 1 s. Resultados a 8 fotogramas por segundo con la biblioteca de vídeos de prueba (sección Pruebas del front):
+
+| Vídeo | Conteo total | Clientes únicos | Personas reales |
+| --- | --- | --- | --- |
+| Pasillo de menaje | 8 | 6 | 6 |
+| Puerta de tienda desde la calle | 5 | 5 | 5 |
+| Entrada vista desde arriba | 8 | 8 | ~10 |
+| Personas cruzando | 7 | 7 | 7 |
+| Una persona cada vez | 6 | 6 | 6 |
+| Caminan, se paran y se van | 7 | 7 | 7 |
+| Caminan hacia la cámara | 7 | 7 | 7 |
+| Operarios con chaleco | 6 | 5 | ~4 |
+| Personas sentadas | 4 | 4 | 4 |
+| Mercadillo con mucha gente | 34 | 29 | sin conteo |
+| Vídeo sin personas | 0 | 0 | 0 |
+
+Ninguno junta a dos personas distintas. `web/biblioteca.sh` prepara estos vídeos para el front.
+
 El sistema está ajustado para no fusionar nunca a dos clientes distintos, aunque a cambio a veces cuente de más a alguien que desaparece varios segundos y vuelve a otra parte de la imagen. Con el modelo MARS incluido, personas distintas con ropa parecida llegan a puntuar más que la misma persona vista de nuevo, por eso la re-entrada lejana es muy estricta. Un modelo más fuerte (OSNet entrenado en MSMT17, exportado a ONNX con entrada BGR 128x64) permitiría bajar `--umbral-reentrada`.
 
 ## Configurar una tienda nueva
@@ -100,6 +120,8 @@ T-1002,2026-10-09T11:00:38,42.90,cuencos;vajilla
 ## Vídeos y modelos de terceros
 
 - `store-aisle-detection.mp4`, `people-detection.mp4`, `one-by-one-person-detection.mp4`, `worker-zone-detection.mp4`: [intel-iot-devkit/sample-videos](https://github.com/intel-iot-devkit/sample-videos), CC BY 4.0.
+- `face-demographics-walking-and-pause.mp4`, `face-demographics-walking.mp4`, `classroom.mp4`, `fruit-and-vegetable-detection.mp4`: también de intel-iot-devkit/sample-videos, CC BY 4.0.
+- `entrada_tienda_calle.mp4` (`vid/peoplecount1.mp4` de [Amal-Emad/Detection-TrackingYolov8](https://github.com/Amal-Emad/Detection-TrackingYolov8)) y `mercadillo_multitud.mp4` (`crowd.mp4` de [Boo4kin/people-detection-yolo](https://github.com/Boo4kin/people-detection-yolo)): sus repositorios no declaran licencia, solo para pruebas internas.
 - `entrada_cenital.mp4`: `test_1.mp4` de [saimj7/People-Counting-in-Real-Time](https://github.com/saimj7/People-Counting-in-Real-Time), MIT.
 - `mars-small128`: modelo de re-identificación de [Deep SORT](https://github.com/nwojke/deep_sort), GPL-3.0. No se incluye en el repositorio; lo descarga `scripts/descargar_modelos.sh`.
 - `yolo11n`: detector de [Ultralytics](https://github.com/ultralytics/ultralytics), AGPL-3.0 (para uso comercial cerrado hace falta su licencia empresarial).

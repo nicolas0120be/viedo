@@ -33,4 +33,7 @@ base64 -w0 "$RAIZ/modelos/mars-small128.onnx" > "$DIST/mars.onnx.b64.txt"
 [ -f "$RAIZ/data/store-aisle-detection.mp4" ] || "$RAIZ/scripts/descargar_videos.sh"
 cp "$RAIZ/data/store-aisle-detection.mp4" "$DIST/ejemplo.mp4"
 
+# Biblioteca de vídeos de prueba con su conteo manual.
+./biblioteca.sh
+
 echo "Listo. Sirve la carpeta con:  python3 -m http.server -d web/dist 8000  y abre http://localhost:8000/analitica-tienda.html"

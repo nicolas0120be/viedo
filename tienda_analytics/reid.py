@@ -47,7 +47,7 @@ class ParametrosReid:
     color_reentrada: float = 0.3    # y color de ropa mínimo (centrado) para lo mismo
     max_hueco_s: float = 2.0        # hueco máximo entre fragmentos contiguos
     max_salto: float = 0.15         # salto máximo, en fracción de la diagonal de la imagen
-    solape_max_s: float = 0.5       # más solape que esto: son personas distintas
+    solape_max_s: float = 1.0       # más solape que esto: son personas distintas (igual que el navegador)
 
 
 def _media(lista: list[np.ndarray], centro: np.ndarray | None = None) -> np.ndarray | None:
