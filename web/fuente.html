@@ -44,6 +44,7 @@ p{margin:0}
 .btn.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
 .btn[disabled]{opacity:.5;pointer-events:none}
 label.f{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted);min-width:0}
+label.f.inline{flex-direction:row;align-items:center;gap:8px}
 select{max-width:100%}
 input[type=text],input[type=date],input[type=time],input[type=number],select{font:inherit;font-size:14px;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:7px 9px;min-width:0}
 .grid2{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
@@ -107,6 +108,14 @@ td.wrap{white-space:normal;min-width:220px}
 .vbody .hint{font-size:13px;margin:0}
 .vres{font-size:13px}
 .vfuente{margin:auto 0 0;color:var(--muted);font-size:11.5px;line-height:1.4}
+.ent-grid{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,1.3fr);gap:18px;align-items:start}
+.ent-cv{width:100%;display:block;border-radius:8px;background:#000;touch-action:none;cursor:crosshair;max-width:100%}
+.ent-oculto{position:fixed;left:-10px;top:-10px;width:1px;height:1px;opacity:0;pointer-events:none}
+.ent-lista{display:flex;flex-wrap:wrap;gap:6px;max-height:160px;overflow:auto}
+.ent-lista .chip{border:none;cursor:pointer}
+.kpis.k2{grid-template-columns:repeat(2,minmax(0,1fr))}
+#ent-t{width:100%;accent-color:var(--accent)}
+.leyenda .sw{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
 .empty{color:var(--muted);font-size:14px;padding:14px;border:1px dashed var(--line);border-radius:10px}
 .media{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:16px;align-items:start}
 figure{margin:0;display:flex;flex-direction:column;gap:6px;min-width:0}
@@ -115,7 +124,7 @@ figcaption{color:var(--muted);font-size:13px}
 .visor video,.visor canvas,figure canvas{width:100%;display:block;border-radius:8px}
 .visor canvas{position:absolute;inset:0;height:100%;pointer-events:none}
 .leyenda{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)}
-@media (max-width:900px){.editor{grid-template-columns:1fr}.media{grid-template-columns:1fr}.grid2{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:900px){.ent-grid{grid-template-columns:1fr}.editor{grid-template-columns:1fr}.media{grid-template-columns:1fr}.grid2{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:760px){
   .wrap{grid-template-columns:1fr}
   nav{flex-direction:row;flex-wrap:wrap;border-right:none;border-bottom:1px solid var(--line);padding:14px 16px}
@@ -133,6 +142,7 @@ figcaption{color:var(--muted);font-size:13px}
   <button data-sec="res">Resultados</button>
   <button data-sec="ven">Ventas</button>
   <button data-sec="pru">Pruebas</button>
+  <button data-sec="ent">Entrenamiento</button>
   <div class="foot">El vídeo se analiza en tu navegador y no sale de tu equipo. Solo se guardan posiciones, tiempos y un número por cliente; nunca imágenes de personas.</div>
 </nav>
 <main>
@@ -199,7 +209,13 @@ figcaption{color:var(--muted);font-size:13px}
   </div>
 
   <div id="paso-progreso" class="card" hidden>
-    <div class="row" style="justify-content:space-between"><h2>Analizando…</h2><button class="btn small" id="b-cancelar">Cancelar</button></div>
+    <div class="row" style="justify-content:space-between"><h2>Analizando…</h2>
+      <div class="row" style="gap:8px">
+        <label class="f inline">Velocidad<select id="c-ritmo">
+          <option value="0" selected>Máxima</option><option value="2">2× el vídeo</option><option value="1">1× (tiempo real)</option><option value="0.5">0,5×</option><option value="0.25">0,25×</option>
+        </select></label>
+        <button class="btn small" id="b-pausa">Pausar</button><button class="btn small" id="b-cancelar">Cancelar</button>
+      </div></div>
     <div class="progreso"><div id="barra"></div></div>
     <div class="row meta" id="estado"></div>
     <canvas id="cv-vivo" style="width:100%;max-width:720px;border-radius:8px;display:block"></canvas>
@@ -260,6 +276,7 @@ figcaption{color:var(--muted);font-size:13px}
         <div class="row"><label class="btn">Abrir el vídeo<input id="in-rev" type="file" accept="video/*" hidden></label><span class="hint" id="msg-rev"></span></div>
       </div>
       <div class="visor" id="visor" hidden><video id="v-rev" controls muted playsinline></video><canvas id="cv-rev"></canvas></div>
+        <label class="f inline">Velocidad de reproducción<select id="c-vel-rev"><option value="0.25">0,25×</option><option value="0.5">0,5×</option><option value="1" selected>1×</option><option value="1.5">1,5×</option><option value="2">2×</option><option value="4">4×</option></select></label>
       <div class="leyenda"><span>Pn = cliente único</span><span>gris = tramo corto, no cuenta</span></div>
     </div>
     <div class="row"><button class="btn small" id="b-anotar">Anotar en el registro de pruebas</button><button class="btn small" id="b-borrar">Borrar este análisis</button><button class="btn small" id="b-borrar-ok" hidden>Sí, borrar</button><span class="hint" id="msg-borrar"></span></div>
@@ -309,6 +326,63 @@ figcaption{color:var(--muted);font-size:13px}
     <div class="row"><button class="btn primary" id="b-p-guardar">Guardar prueba</button><button class="btn small" id="b-p-cancelar" hidden>Cancelar edición</button><span class="hint" id="msg-p"></span></div>
   </div>
   <div class="tbl"><table id="t-pruebas"></table></div>
+</section>
+
+<!-- ============================================================ ENTRENAMIENTO -->
+<section id="sec-ent" class="panel" hidden>
+  <div class="stack"><h1>Entrenamiento</h1>
+  <p class="hint">Revisa un vídeo fotograma a fotograma. La herramienta marca a las personas que ve y tú la corriges: arrastra sobre la imagen para añadir a alguien que no ha visto y toca una caja para quitarla o para aceptar una dudosa. Lo que guardes se descarga como datos para reentrenar el detector.</p></div>
+
+  <div id="ent-subir" class="drop">
+    <h2>Elige un vídeo para revisar</h2>
+    <p class="hint">El vídeo no sale de tu equipo. Solo se guardan las cajas que marques.</p>
+    <div class="row" style="justify-content:center">
+      <label class="btn primary">Elegir vídeo<input id="ent-in" type="file" accept="video/*" hidden></label>
+      <select id="ent-bib" aria-label="Vídeo de prueba"><option value="">… o un vídeo de prueba</option></select>
+    </div>
+  </div>
+  <div id="ent-msg-err" class="note bad" hidden></div>
+  <div id="ent-previos" class="stack"></div>
+
+  <div id="ent-trabajo" class="card" hidden>
+    <div class="row" style="justify-content:space-between">
+      <div class="stack" style="gap:2px"><h2 id="ent-nombre"></h2><span class="meta" id="ent-info"></span></div>
+      <button class="btn small" id="ent-otro">Cambiar de vídeo</button>
+    </div>
+    <div class="ent-grid">
+      <div class="stack" style="gap:10px;min-width:0">
+        <canvas id="ent-cv" class="ent-cv"></canvas>
+        <input type="range" id="ent-t" min="0" max="1" step="0.01" value="0" aria-label="Momento del vídeo">
+        <div class="row" style="gap:8px">
+          <button class="btn small" id="ent-ant">‹ Anterior</button>
+          <button class="btn small" id="ent-play">Reproducir</button>
+          <button class="btn small" id="ent-sig">Siguiente ›</button>
+          <label class="f inline">Paso<select id="ent-paso"><option value="0.5">0,5 s</option><option value="1" selected>1 s</option><option value="2">2 s</option><option value="5">5 s</option></select></label>
+          <label class="f inline">Velocidad<select id="ent-vel"><option value="0.25">0,25×</option><option value="0.5">0,5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label>
+          <span class="meta" id="ent-tiempo"></span>
+        </div>
+        <div class="leyenda">
+          <span><i class="sw" style="background:#17a2c4"></i>Vista por la herramienta</span>
+          <span><i class="sw" style="background:#e0b000"></i>Dudosa (no cuenta)</span>
+          <span><i class="sw" style="background:#2fbf5f"></i>Añadida por ti</span>
+          <span><i class="sw" style="background:#d9534f"></i>Quitada</span>
+        </div>
+        <p class="hint">Teclado: ← y → para moverte, Intro para guardar, Ctrl+Z para deshacer.</p>
+      </div>
+      <div class="stack" style="gap:12px;min-width:0">
+        <div class="kpis k2" id="ent-kpis-f"></div>
+        <span class="hint" id="ent-msg"></span>
+        <div class="row" style="gap:8px"><button class="btn primary" id="ent-guardar">Guardar y seguir</button><button class="btn small" id="ent-deshacer">Deshacer</button></div>
+        <span class="hint" id="ent-msg-guardado"></span>
+        <h3>Este vídeo</h3>
+        <div class="kpis k2" id="ent-resumen"></div>
+        <h3>Fotogramas revisados</h3>
+        <div class="ent-lista" id="ent-lista"></div>
+        <button class="btn" id="ent-exportar" disabled>Descargar datos de entrenamiento (.zip)</button>
+        <span class="hint" id="ent-msg-exp"></span>
+      </div>
+    </div>
+  </div>
 </section>
 
 </main>

@@ -50,6 +50,18 @@ python3 -m http.server -d web/dist 8000 # abre http://localhost:8000/analitica-t
 
 Servida así no guarda historial (eso lo pone el visor de Artifacts de Claude); los resultados se pueden descargar en CSV.
 
+## Entrenar el detector con ayuda humana
+
+En la pestaña **Entrenamiento** del front se abre un vídeo y se revisa fotograma a fotograma: la herramienta propone las personas que ve y el revisor añade las que faltan (arrastrando sobre la imagen), quita las falsas alarmas y acepta las dudosas (tocando la caja). Las cajas se guardan por vídeo y se descargan como un `.zip` en formato YOLO (`images/`, `labels/`, `data.yaml`). La pestaña muestra también qué porcentaje de las personas vio la herramienta sin ayuda.
+
+Para reentrenar con uno o varios de esos `.zip`:
+
+```bash
+python scripts/entrenar_detector.py entrenamiento-*.zip --epocas 30
+```
+
+El script ajusta YOLO11n, lo exporta a ONNX y deja `yolo11n.onnx.b64.txt` listo para copiar a `web/dist` y volver a publicar el front. Antes de quedarse con el modelo nuevo, conviene repetir los vídeos de la sección Pruebas y comparar en el registro.
+
 ## Desplegar en un servidor
 
 `Dockerfile` empaqueta el front de Streamlit con el análisis en Python. `render.yaml` lo despliega en Render con un disco para los análisis (`DATOS_APP`). En Google Cloud Run las subidas están limitadas a 32 MB, poco para vídeo.

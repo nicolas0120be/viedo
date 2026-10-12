@@ -53,6 +53,7 @@
     analisis: [],            // [{id, creado, nombre, camara, inicio, duracion, conteo, unicos, datos?}]
     camaras: [],             // [{id, nombre, ancho, alto, config}]
     ticketsCsv: "",
+    entrenos: [],            // vídeos revisados en Entrenamiento [{id, nombre, ancho, alto, fotogramas (JSON), actualizado}]
     pruebas: [],             // registro de pruebas [{id, fecha, version, video, ajustes, total, unicos, reales, aprox, fusiones, segundos, notas, creado}]
     editando: null,
     actual: null,            // id del análisis mostrado
@@ -61,15 +62,18 @@
     config: { zonas: [], lineas: [], interaccion_segundos: 3, min_segundos_visita: 1 },
     dib: null,               // {tipo, puntos}
     cancelar: false,
+    pausado: false,          // análisis en pausa
+    ritmo: 0,                // velocidad del análisis respecto al vídeo: 0 = la máxima posible
   };
 
   /* ------------------------------------------------------- navegación */
   function irA(sec) {
     document.querySelectorAll("nav button[data-sec]").forEach((b) => b.setAttribute("aria-current", String(b.dataset.sec === sec)));
-    ["ana", "res", "ven", "pru"].forEach((s) => ($("sec-" + s).hidden = s !== sec));
+    ["ana", "res", "ven", "pru", "ent"].forEach((s) => ($("sec-" + s).hidden = s !== sec));
     if (sec === "res") pintarResultados();
     if (sec === "pru") { pintarPruebas(); pintarBiblioteca(); }
     if (sec === "ven") pintarVentas();
+    if (sec === "ent") pintarEntrenos();
   }
   document.querySelectorAll("nav button[data-sec]").forEach((b) => b.addEventListener("click", () => irA(b.dataset.sec)));
   document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("click", () => {
@@ -86,7 +90,8 @@
       if (user) { try { const c = await user.can("data.write"); if (c === false) S.puedeEscribir = false; } catch (_) {} }
       if (!db) return;
       S.db = db;
-      const [an, cam, ven] = await Promise.all([db.collection("analisis").get(), db.collection("camaras").get(), db.doc("ventas/tickets").get()]);
+      const [an, cam, ven, ent] = await Promise.all([db.collection("analisis").get(), db.collection("camaras").get(), db.doc("ventas/tickets").get(), db.collection("entrenamiento").get()]);
+      S.entrenos = ent.docs.map((d) => ({ id: d.id, ...d.data() }));
       db.collection("pruebas").onSnapshot((q) => {
         const locales = S.pruebas.filter((p) => p.soloLocal);
         S.pruebas = [...locales, ...q.docs.map((d) => ({ id: d.id, ...d.data() }))];
@@ -99,6 +104,7 @@
       pintarPlantillas(); pintarSelector();
       if (!$("sec-res").hidden) pintarResultados();
       if (!$("sec-ven").hidden) pintarVentas();
+      if (!$("sec-ent").hidden) pintarEntrenos();
       if (!S.puedeEscribir) $("f-prueba").hidden = true;
     } catch (e) { console.warn("datos", e); }
   }
@@ -203,16 +209,28 @@
     }
 
     const enVuelo = new Map();
-    let k = 0, sig = 0;
+    let k = 0, sig = 0, enPausa = 0, ultimo = performance.now();
     const maxVuelo = m.nDet + 1;
+    const dormir = (ms) => new Promise((ok) => setTimeout(ok, ms));
     while (sig < N) {
       if (S.cancelar) throw new Error("cancelado");
+      if (S.pausado) {
+        const p0 = performance.now();
+        alAvanzar({ fase: "En pausa", frac: sig / N, pausa: true });
+        while (S.pausado && !S.cancelar) await dormir(120);
+        enPausa += performance.now() - p0;
+        continue;
+      }
+      // A velocidad limitada, cada fotograma se muestra el tiempo que dura en el vídeo dividido por el ritmo.
+      if (S.ritmo > 0) { const falta = 1000 / fps / S.ritmo - (performance.now() - ultimo); if (falta > 0) await dormir(falta); }
+      ultimo = performance.now();
       while (k < N && k - sig < maxVuelo) { const px = await capturar(k); enVuelo.set(k, m.detectar(px, lb, ajustes.minScore ?? 0.1)); k++; }
       const r = await enVuelo.get(sig); enVuelo.delete(sig);
       const { img, pistas } = procesar(sig, r);
       sig++;
-      const seg = (performance.now() - t0) / 1000;
-      alAvanzar({ fase: "Detectando y siguiendo personas", frac: sig / N, img, lb, pistas, t: sig / fps, dur, resta: (seg / sig) * (N - sig), trayectos: reg.tr.size });
+      const seg = (performance.now() - t0 - enPausa) / 1000;
+      const resta = S.ritmo > 0 ? Math.max((seg / sig) * (N - sig), (N - sig) / fps / S.ritmo) : (seg / sig) * (N - sig);
+      alAvanzar({ fase: "Detectando y siguiendo personas", frac: sig / N, img, lb, pistas, t: sig / fps, dur, resta, trayectos: reg.tr.size });
     }
     reg.cerrar();
     alAvanzar({ fase: "Reconociendo a las personas que vuelven…", frac: 1 });
@@ -243,7 +261,7 @@
       video: { ancho: W, alto: Hh, duracion: r2(dur) }, ajustes: { fps, reid: ajustes.reid !== false },
       config, trayectos, descartados: reg.tr.size - trayectos.length, duplicados: duplicados.length, detectados: reg.tr.size,
       calor: { gw: reg.gw, gh: reg.gh, v: Array.from(reg.calor) }, fondo: fondoUrl,
-      segundosProceso: Math.round((performance.now() - t0) / 1000),
+      segundosProceso: Math.round((performance.now() - t0 - enPausa) / 1000),
     };
     if (url.startsWith("blob:")) URL.revokeObjectURL(url);
     return { analisis, registro, personas, reid, validos };
@@ -441,7 +459,7 @@
     const inicio = `${$("c-fecha").value || "2026-01-01"}T${($("c-hora").value || "00:00:00").padEnd(8, ":00").slice(0, 8)}`;
     const meta = { nombre: v.nombre, camara: $("c-nombre").value.trim() || "Cámara", inicio, biblio: v.biblio || null };
     const config = JSON.parse(JSON.stringify(S.config));
-    S.cancelar = false;
+    S.cancelar = false; S.pausado = false; $("b-pausa").textContent = "Pausar";
     $("paso-config").hidden = true; $("paso-progreso").hidden = false; $("msg-error").hidden = true;
     const vivo = $("cv-vivo"), vctx = vivo.getContext("2d");
     const tmp = document.createElement("canvas"); tmp.width = tmp.height = 640;
@@ -452,7 +470,8 @@
         const partes = [p.fase];
         if (p.t !== undefined) partes.push(`${fmtDur(p.t)} de ${fmtDur(p.dur)}`, `${p.trayectos} tramos`, `quedan ~${fmtDur(Math.max(1, p.resta))}`);
         $("estado").textContent = partes.join(" · ");
-        if (p.img && performance.now() - ultimoPintado > 150) {
+        if (p.pausa) return;
+        if (p.img && (S.ritmo > 0 || performance.now() - ultimoPintado > 150)) {
           ultimoPintado = performance.now();
           tmp.getContext("2d").putImageData(p.img, 0, 0);
           const lb = p.lb; vivo.width = lb.ancho; vivo.height = lb.alto;
@@ -481,7 +500,14 @@
       if (String(e.message) !== "cancelado") mostrarError("No se pudo analizar el vídeo: " + (e.message || e) + ". Si el problema es el motor de detección, prueba con Chrome o Edge actualizados.");
     }
   };
-  $("b-cancelar").onclick = () => (S.cancelar = true);
+  $("b-cancelar").onclick = () => { S.cancelar = true; S.pausado = false; };
+  $("b-pausa").onclick = () => {
+    S.pausado = !S.pausado;
+    $("b-pausa").textContent = S.pausado ? "Reanudar" : "Pausar";
+    if (S.pausado) $("estado").textContent = "En pausa. Pulsa «Reanudar» para seguir.";
+  };
+  $("c-ritmo").onchange = () => (S.ritmo = +$("c-ritmo").value);
+  $("c-vel-rev").onchange = () => { const v = $("v-rev"); v.defaultPlaybackRate = v.playbackRate = +$("c-vel-rev").value; };
 
   /* ------------------------------------------------------- tickets */
   function parsearTickets(csv) {
@@ -658,7 +684,7 @@
   }
   function mostrarRevision(a, r, url) {
     const v = $("v-rev"), c = $("cv-rev"), ctx = c.getContext("2d");
-    v.src = url; $("visor").hidden = false;
+    v.src = url; v.defaultPlaybackRate = v.playbackRate = +$("c-vel-rev").value; $("visor").hidden = false;
     const reg = r.registro, pers = r.personas;
     const pinta = () => {
       if (c.width !== a.video.ancho) { c.width = a.video.ancho; c.height = a.video.alto; }
@@ -834,6 +860,270 @@
       bt.textContent = txt; bt.disabled = false;
     }));
   }
+
+  /* ------------------------------------------------------ entrenamiento */
+  // Revisión humana fotograma a fotograma. Cada caja: {c: [x1, y1, x2, y2], s: confianza, o: "m" modelo | "h" humano, e: "si" | "no" | "duda"}.
+  const ALTA = 0.35;
+  const E = { v: null, url: null, id: null, nombre: "", ancho: 0, alto: 0, duracion: 0, t: 0, cajas: [], deshacer: [], fotos: new Map(), arr: null, buscando: 0, jugando: false };
+  const claveT = (t) => (Math.round(t * 100) / 100).toFixed(2);
+  const slug = (s) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "video";
+
+  function pintarEntrenos() {
+    const el = $("ent-previos"); if (!el) return;
+    const sel = $("ent-bib");
+    if (sel.options.length <= 1) BIBLIOTECA.forEach((b) => sel.insertAdjacentHTML("beforeend", `<option value="${esc(b.id)}">${esc(b.nombre)}</option>`));
+    if (!S.entrenos.length) { el.innerHTML = ""; return; }
+    el.innerHTML = '<h3 style="margin-top:6px">Vídeos ya revisados</h3><div class="tbl"><table><thead><tr><th>Vídeo</th><th class=num>Fotogramas</th><th class=num>Personas</th><th>Última revisión</th></tr></thead><tbody>' +
+      S.entrenos.map((d) => {
+        let n = 0, p = 0; try { const fs = JSON.parse(d.fotogramas); n = fs.length; fs.forEach((f) => (p += f.cajas.filter((c) => c[6] === "si").length)); } catch (_) {}
+        return `<tr><td>${esc(d.nombre)}</td><td class=num>${n}</td><td class=num>${p}</td><td>${d.actualizado ? esc(fmtFecha(new Date(d.actualizado))) : "—"}</td></tr>`;
+      }).join("") + '</tbody></table></div><p class="hint">Para seguir revisando uno de ellos, vuelve a abrir el mismo vídeo: sus fotogramas revisados se recuperan solos.</p>';
+  }
+
+  async function abrirEntreno(url, nombre) {
+    $("ent-msg-err").hidden = true;
+    let v;
+    try { v = await abrirVideo(url); } catch (e) { $("ent-msg-err").textContent = e.message; $("ent-msg-err").hidden = false; return; }
+    if (E.v) E.v.remove();
+    v.className = "ent-oculto"; document.body.appendChild(v);
+    Object.assign(E, { v, url, nombre, ancho: v.videoWidth, alto: v.videoHeight, duracion: v.duration, t: 0, cajas: [], deshacer: [], fotos: new Map(), jugando: false });
+    E.id = slug(nombre) + "-" + E.ancho + "x" + E.alto;
+    const previo = S.entrenos.find((d) => d.id === E.id);
+    if (previo) { try { JSON.parse(previo.fotogramas).forEach((f) => E.fotos.set(claveT(f.t), f)); } catch (_) {} }
+    const cv = $("ent-cv"); cv.width = E.ancho; cv.height = E.alto;
+    $("ent-nombre").textContent = nombre;
+    $("ent-info").textContent = `${E.ancho}×${E.alto} · ${fmtDur(E.duracion)}` + (E.fotos.size ? ` · ${E.fotos.size} fotogramas ya revisados` : "");
+    const r = $("ent-t"); r.max = String(Math.max(0, E.duracion - 0.05)); r.value = "0";
+    v.defaultPlaybackRate = v.playbackRate = +$("ent-vel").value;
+    $("ent-subir").hidden = true; $("ent-trabajo").hidden = false;
+    pintarListaEnt(); resumenEnt();
+    await irAEnt(0);
+  }
+
+  async function irAEnt(t) {
+    if (!E.v) return;
+    pararEnt();
+    t = Math.max(0, Math.min(E.duracion - 0.05, t));
+    const turno = ++E.buscando;
+    E.t = t; $("ent-t").value = String(t);
+    await irAt(E.v, t);
+    if (turno !== E.buscando) return;
+    E.deshacer = [];
+    const guardado = E.fotos.get(claveT(t));
+    if (guardado) {
+      E.cajas = guardado.cajas.map(([x1, y1, x2, y2, s, o, e]) => ({ c: [x1, y1, x2, y2], s, o, e }));
+      pintarEnt(); $("ent-msg").textContent = "Fotograma ya revisado. Si cambias algo, vuelve a guardarlo.";
+      return;
+    }
+    E.cajas = []; pintarEnt();
+    $("ent-msg").textContent = "Buscando personas…";
+    try {
+      const m = crearMotor(); await m.listo;
+      const lb = Motor.letterbox(E.ancho, E.alto, 640);
+      const lz = document.createElement("canvas"); lz.width = lz.height = 640;
+      const cx = lz.getContext("2d", { willReadFrequently: true });
+      cx.fillStyle = "rgb(114,114,114)"; cx.fillRect(0, 0, 640, 640); cx.drawImage(E.v, lb.dx, lb.dy, lb.nw, lb.nh);
+      const r = await m.detectar(cx.getImageData(0, 0, 640, 640).data.buffer, lb, 0.1);
+      if (turno !== E.buscando) return;
+      E.cajas = r.cajas.map(([x1, y1, x2, y2, s]) => ({ c: [x1, y1, x2, y2].map(Math.round), s: Math.round(s * 100) / 100, o: "m", e: s >= ALTA ? "si" : "duda" }));
+      const n = E.cajas.filter((c) => c.e === "si").length, d = E.cajas.length - n;
+      $("ent-msg").textContent = `La herramienta ve ${n} ${n === 1 ? "persona" : "personas"}` + (d ? ` y ${d} ${d === 1 ? "dudosa" : "dudosas"}.` : ".") + " Corrige lo que falte y guarda.";
+    } catch (e) { $("ent-msg").textContent = "No se pudo ejecutar el detector: " + e.message; }
+    pintarEnt();
+  }
+
+  const COL_ENT = { si: "#17a2c4", duda: "#e0b000", no: "#d9534f", h: "#2fbf5f" };
+  function pintarEnt() {
+    const cv = $("ent-cv"), ctx = cv.getContext("2d");
+    if (E.v) ctx.drawImage(E.v, 0, 0, E.ancho, E.alto);
+    if (E.jugando) return;
+    const lw = Math.max(2, E.ancho / 320);
+    for (const b of E.cajas) {
+      const [x1, y1, x2, y2] = b.c, col = b.o === "h" ? COL_ENT.h : COL_ENT[b.e];
+      ctx.lineWidth = b.o === "h" ? lw * 1.4 : lw; ctx.strokeStyle = col;
+      ctx.setLineDash(b.e === "si" ? [] : [lw * 3, lw * 2]);
+      ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+      if (b.e === "no") { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.moveTo(x2, y1); ctx.lineTo(x1, y2); ctx.stroke(); }
+      if (b.o === "m" && b.e !== "no") {
+        ctx.setLineDash([]); ctx.font = `600 ${Math.round(lw * 6)}px system-ui`; ctx.fillStyle = col;
+        ctx.fillText(Math.round(b.s * 100) + "%", x1 + lw, Math.max(lw * 7, y1 - lw * 2));
+      }
+    }
+    ctx.setLineDash([]);
+    if (E.arr && E.arr.b) {
+      const [a, b] = [E.arr.a, E.arr.b]; ctx.strokeStyle = COL_ENT.h; ctx.lineWidth = lw; ctx.setLineDash([lw * 2, lw * 2]);
+      ctx.strokeRect(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])); ctx.setLineDash([]);
+    }
+    const n = (f) => E.cajas.filter(f).length;
+    kpis($("ent-kpis-f"), [
+      { l: "Personas en el fotograma", v: fmtN(n((b) => b.e === "si")), hl: true },
+      { l: "Vistas por la herramienta", v: fmtN(n((b) => b.o === "m" && b.e === "si" && b.s >= ALTA)) },
+      { l: "Añadidas o aceptadas por ti", v: fmtN(n((b) => b.o === "h" || (b.o === "m" && b.e === "si" && b.s < ALTA))) },
+      { l: "Falsas alarmas quitadas", v: fmtN(n((b) => b.o === "m" && b.e === "no" && b.s >= ALTA)) },
+    ]);
+    $("ent-tiempo").textContent = `${fmtDur(E.t)} de ${fmtDur(E.duracion)}` + (E.fotos.has(claveT(E.t)) ? " · revisado" : "");
+  }
+
+  function puntoEnt(ev) {
+    const r = $("ent-cv").getBoundingClientRect();
+    return [Math.max(0, Math.min(E.ancho, ((ev.clientX - r.left) / r.width) * E.ancho)), Math.max(0, Math.min(E.alto, ((ev.clientY - r.top) / r.height) * E.alto))];
+  }
+  function cambiarEnt(fn) { E.deshacer.push(JSON.stringify(E.cajas)); fn(); pintarEnt(); }
+  $("ent-cv").addEventListener("pointerdown", (ev) => {
+    if (!E.v || E.jugando) return;
+    ev.preventDefault(); $("ent-cv").setPointerCapture(ev.pointerId);
+    E.arr = { a: puntoEnt(ev), b: null };
+  });
+  $("ent-cv").addEventListener("pointermove", (ev) => { if (E.arr) { E.arr.b = puntoEnt(ev); pintarEnt(); } });
+  $("ent-cv").addEventListener("pointerup", (ev) => {
+    if (!E.arr) return;
+    const a = E.arr.a, b = puntoEnt(ev); E.arr = null;
+    const min = Math.max(6, E.ancho / 120);
+    if (Math.abs(b[0] - a[0]) > min && Math.abs(b[1] - a[1]) > min) {
+      const c = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])].map(Math.round);
+      return cambiarEnt(() => E.cajas.push({ c, s: 1, o: "h", e: "si" }));
+    }
+    // Toque: la caja más pequeña que contiene el punto.
+    const dentro = E.cajas.filter((x) => a[0] >= x.c[0] && a[0] <= x.c[2] && a[1] >= x.c[1] && a[1] <= x.c[3])
+      .sort((x, y) => (x.c[2] - x.c[0]) * (x.c[3] - x.c[1]) - (y.c[2] - y.c[0]) * (y.c[3] - y.c[1]));
+    if (!dentro.length) return pintarEnt();
+    const x = dentro[0];
+    cambiarEnt(() => {
+      if (x.o === "h") E.cajas.splice(E.cajas.indexOf(x), 1);
+      else x.e = x.e === "si" ? "no" : "si";
+    });
+  });
+  $("ent-cv").addEventListener("pointercancel", () => { E.arr = null; pintarEnt(); });
+
+  $("ent-deshacer").onclick = () => { if (E.deshacer.length) { E.cajas = JSON.parse(E.deshacer.pop()); pintarEnt(); } };
+  $("ent-sig").onclick = () => irAEnt(E.t + +$("ent-paso").value);
+  $("ent-ant").onclick = () => irAEnt(E.t - +$("ent-paso").value);
+  $("ent-t").onchange = () => irAEnt(+$("ent-t").value);
+  $("ent-t").oninput = () => { $("ent-tiempo").textContent = `${fmtDur(+$("ent-t").value)} de ${fmtDur(E.duracion)}`; };
+  $("ent-vel").onchange = () => { if (E.v) E.v.defaultPlaybackRate = E.v.playbackRate = +$("ent-vel").value; };
+  function pararEnt() {
+    if (!E.jugando) return;
+    E.jugando = false; E.v.pause(); $("ent-play").textContent = "Reproducir";
+  }
+  $("ent-play").onclick = async () => {
+    if (!E.v) return;
+    if (E.jugando) { pararEnt(); const t = E.v.currentTime; return irAEnt(t); }
+    E.jugando = true; E.buscando++; $("ent-play").textContent = "Pausar"; $("ent-msg").textContent = "Pausa el vídeo donde quieras revisar.";
+    E.v.playbackRate = +$("ent-vel").value;
+    try { await E.v.play(); } catch (e) { pararEnt(); return; }
+    const bucle = () => {
+      if (!E.jugando) return;
+      E.t = E.v.currentTime; $("ent-t").value = String(E.t); pintarEnt();
+      $("ent-tiempo").textContent = `${fmtDur(E.t)} de ${fmtDur(E.duracion)}`;
+      if (E.v.ended) { pararEnt(); return irAEnt(E.duracion - 0.05); }
+      requestAnimationFrame(bucle);
+    };
+    requestAnimationFrame(bucle);
+  };
+  document.addEventListener("keydown", (ev) => {
+    if ($("sec-ent").hidden || !E.v || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
+    if (ev.key === "ArrowRight") { ev.preventDefault(); $("ent-sig").onclick(); }
+    else if (ev.key === "ArrowLeft") { ev.preventDefault(); $("ent-ant").onclick(); }
+    else if (ev.key === "Enter") { ev.preventDefault(); $("ent-guardar").onclick(); }
+    else if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "z") { ev.preventDefault(); $("ent-deshacer").onclick(); }
+  });
+
+  async function persistirEnt() {
+    const fotogramas = [...E.fotos.values()].sort((a, b) => a.t - b.t);
+    const doc = { nombre: E.nombre, ancho: E.ancho, alto: E.alto, duracion: Math.round(E.duracion * 100) / 100, fotogramas: JSON.stringify(fotogramas), actualizado: new Date().toISOString() };
+    S.entrenos = S.entrenos.filter((d) => d.id !== E.id).concat([{ id: E.id, ...doc }]);
+    return guardar("entrenamiento/" + E.id, doc);
+  }
+  $("ent-guardar").onclick = async () => {
+    if (!E.v || E.jugando) return;
+    const t = E.t;
+    E.fotos.set(claveT(t), { t: Math.round(t * 100) / 100, cajas: E.cajas.map((b) => [...b.c, b.s, b.o, b.e]) });
+    const ok = await persistirEnt();
+    pintarListaEnt(); resumenEnt();
+    $("ent-msg-guardado").textContent = ok ? "" : "Guardado solo mientras esta página siga abierta.";
+    if (t + +$("ent-paso").value < E.duracion) irAEnt(t + +$("ent-paso").value);
+    else { pintarEnt(); $("ent-msg").textContent = "Has llegado al final del vídeo."; }
+  };
+  function pintarListaEnt() {
+    const el = $("ent-lista"), fs = [...E.fotos.values()].sort((a, b) => a.t - b.t);
+    el.innerHTML = fs.length ? fs.map((f) => `<button class="chip" data-t="${f.t}">${esc(fmtDur(f.t))} · ${f.cajas.filter((c) => c[6] === "si").length}</button>`).join("") : '<span class="hint">Aún no has guardado ningún fotograma.</span>';
+    el.querySelectorAll("[data-t]").forEach((b) => (b.onclick = () => irAEnt(+b.dataset.t)));
+  }
+  function resumenEnt() {
+    let vistas = 0, dudas = 0, manos = 0, falsas = 0;
+    for (const f of E.fotos.values()) for (const [, , , , s, o, e] of f.cajas) {
+      if (o === "h") manos++;
+      else if (e === "si") (s >= ALTA ? vistas++ : dudas++);
+      else if (e === "no" && s >= ALTA) falsas++;
+    }
+    const total = vistas + dudas + manos;
+    kpis($("ent-resumen"), [
+      { l: "Fotogramas revisados", v: fmtN(E.fotos.size) },
+      { l: "Personas marcadas", v: fmtN(total) },
+      { l: "Vistas por la herramienta", v: total ? fmtPct(vistas / total) : "—", s: `${manos} añadidas a mano, ${dudas} dudosas aceptadas`, hl: true },
+      { l: "Falsas alarmas", v: fmtN(falsas), s: "cajas que no eran personas" },
+    ]);
+    $("ent-exportar").disabled = !E.fotos.size;
+  }
+
+  let zipCargado = null;
+  function cargarZip() {
+    if (window.JSZip) return Promise.resolve();
+    return (zipCargado ||= new Promise((ok, mal) => {
+      const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+      s.onload = ok; s.onerror = () => { zipCargado = null; mal(new Error("no se pudo cargar el compresor")); }; document.head.appendChild(s);
+    }));
+  }
+  $("ent-exportar").onclick = async () => {
+    if (!E.v || !E.fotos.size) return;
+    const msg = $("ent-msg-exp"), b = $("ent-exportar");
+    if (!S.downloads) { msg.textContent = "La descarga no está disponible en esta vista."; return; }
+    pararEnt(); b.disabled = true;
+    try {
+      await cargarZip();
+      const zip = new window.JSZip(), fs = [...E.fotos.values()].sort((a, b) => a.t - b.t);
+      const esc2 = Math.min(1, 1280 / E.ancho), W = Math.round(E.ancho * esc2), H = Math.round(E.alto * esc2);
+      const lz = document.createElement("canvas"); lz.width = W; lz.height = H; const cx = lz.getContext("2d");
+      let i = 0;
+      for (const f of fs) {
+        msg.textContent = `Preparando fotograma ${++i} de ${fs.length}…`;
+        await irAt(E.v, f.t); cx.drawImage(E.v, 0, 0, W, H);
+        const jpg = await new Promise((ok) => lz.toBlob(ok, "image/jpeg", 0.9));
+        const base = `${E.id}_${String(Math.round(f.t * 100)).padStart(6, "0")}`;
+        zip.file(`images/${base}.jpg`, jpg);
+        zip.file(`labels/${base}.txt`, f.cajas.filter((c) => c[6] === "si").map(([x1, y1, x2, y2]) =>
+          ["0", (x1 + x2) / 2 / E.ancho, (y1 + y2) / 2 / E.alto, (x2 - x1) / E.ancho, (y2 - y1) / E.alto].map((x, k) => (k ? x.toFixed(6) : x)).join(" ")).join("\n"));
+      }
+      zip.file("data.yaml", "# Una sola clase: persona (clase 0 de COCO).\npath: .\ntrain: images\nval: images\nnames:\n  0: person\n");
+      zip.file("anotaciones.json", JSON.stringify({ video: E.nombre, ancho: E.ancho, alto: E.alto, fotogramas: fs }, null, 1));
+      zip.file("LEEME.txt", "Datos de entrenamiento del detector de personas, revisados a mano.\n\nimages/: fotogramas en JPG.\nlabels/: una línea por persona en formato YOLO (clase cx cy ancho alto, normalizado de 0 a 1).\nanotaciones.json: todas las cajas, incluidas las que se descartaron como falsas alarmas.\n\nPara reentrenar el detector con uno o varios de estos .zip:\n  python scripts/entrenar_detector.py entrenamiento-*.zip\n");
+      msg.textContent = "Comprimiendo…";
+      const blob = await zip.generateAsync({ type: "blob" });
+      await S.downloads.save({ filename: `entrenamiento-${E.id}.zip`, data: blob });
+      msg.textContent = `${fs.length} fotogramas exportados.`;
+    } catch (e) {
+      msg.textContent = e && e.code === "declined" ? "" : "No se pudo exportar: " + (e.message || e.code || e);
+    }
+    b.disabled = false; await irAEnt(E.t);
+  };
+
+  $("ent-in").onchange = (e) => { const f = e.target.files[0]; if (f) abrirEntreno(URL.createObjectURL(f), f.name); e.target.value = ""; };
+  $("ent-bib").onchange = async () => {
+    const b = BIBLIOTECA.find((x) => x.id === $("ent-bib").value); if (!b) return;
+    $("ent-bib").disabled = true;
+    try { const r = await fetch(BASE + b.archivo); if (!r.ok) throw new Error("HTTP " + r.status); await abrirEntreno(URL.createObjectURL(await r.blob()), b.nombre); }
+    catch (e) { $("ent-msg-err").textContent = "No se pudo descargar el vídeo: " + e.message; $("ent-msg-err").hidden = false; }
+    $("ent-bib").disabled = false; $("ent-bib").value = "";
+  };
+  const dropEnt = $("ent-subir");
+  dropEnt.addEventListener("dragover", (e) => { e.preventDefault(); dropEnt.classList.add("over"); });
+  dropEnt.addEventListener("dragleave", () => dropEnt.classList.remove("over"));
+  dropEnt.addEventListener("drop", (e) => {
+    e.preventDefault(); dropEnt.classList.remove("over");
+    const f = [...e.dataTransfer.files].find((x) => x.type.startsWith("video/") || /\.(mp4|webm|mov|m4v)$/i.test(x.name));
+    if (f) abrirEntreno(URL.createObjectURL(f), f.name);
+  });
+  $("ent-otro").onclick = () => { pararEnt(); E.buscando++; if (E.v) E.v.remove(); E.v = null; $("ent-trabajo").hidden = true; $("ent-subir").hidden = false; pintarEntrenos(); };
 
   /* ----------------------------------------------------------- arranque */
   window.App = { analizar, estadisticas: Motor.estadisticas, EJEMPLO, BIBLIOTECA, S, crearMotor };
