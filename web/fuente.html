@@ -128,6 +128,13 @@ td.wrap{white-space:normal;min-width:220px}
 .guia code{font-family:var(--font-data);font-size:12.5px;background:var(--sunk);padding:1px 5px;border-radius:4px}
 .sw-t{font-weight:600;border-bottom:3px solid var(--c)}
 .ent-visor{position:relative;min-width:0}
+.foto-visor{min-width:0;border-radius:8px;overflow:hidden;background:var(--bg)}
+.foto-visor canvas{display:block;width:100%;height:auto;touch-action:manipulation;cursor:pointer}
+.foto-tiras{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
+.foto-tiras button{all:unset;cursor:pointer;flex:0 0 auto;display:flex;flex-direction:column;gap:4px;width:110px;font-size:12px;color:var(--muted)}
+.foto-tiras img{width:110px;height:74px;object-fit:cover;border-radius:6px;border:2px solid transparent}
+.foto-tiras button.on img{border-color:var(--accent)}
+.foto-tiras b{color:var(--fg);font-family:var(--font-data)}
 .ent-acciones{position:absolute;z-index:2;display:flex;flex-wrap:wrap;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:6px 8px;box-shadow:0 4px 14px rgb(0 0 0 / .18);max-width:100%}
 .solo-movil{display:none!important}
 @media (pointer:coarse),(max-width:700px){.solo-movil{display:inline-flex!important}p.solo-movil{display:block!important}}
@@ -153,7 +160,7 @@ figcaption{color:var(--muted);font-size:13px}
 <div class="wrap">
 <nav aria-label="Secciones">
   <div class="brand">Analítica de tienda física</div>
-  <button data-sec="ana" aria-current="true">Analizar vídeo</button>
+  <button data-sec="ana" aria-current="true">Analizar</button>
   <button data-sec="res">Resultados</button>
   <button data-sec="ven">Ventas</button>
   <button data-sec="pru">Pruebas</button>
@@ -164,17 +171,37 @@ figcaption{color:var(--muted);font-size:13px}
 
 <!-- ============================================================ ANALIZAR -->
 <section id="sec-ana" class="panel">
-  <div class="stack"><h1>Analizar vídeo</h1>
-  <p class="hint">Sube la grabación de una cámara de la tienda. La herramienta detecta a cada persona, la sigue por la imagen, une los tramos de la misma persona para no contarla dos veces y calcula las estadísticas.</p></div>
+  <div class="stack"><h1>Analizar vídeo o foto</h1>
+  <p class="hint">Sube la grabación de una cámara de la tienda, o una foto si solo quieres contar cuántas personas hay en un momento. La herramienta detecta a cada persona, la sigue por la imagen, une los tramos de la misma persona para no contarla dos veces y calcula las estadísticas.</p></div>
 
   <div id="paso-subir" class="drop">
     <p class="note solo-movil" style="text-align:left">Desde el celular: pulsa «Grabar con la cámara», graba entre 20 segundos y 1 minuto con el teléfono quieto (mejor apoyado y desde arriba, como una cámara de techo) y confirma el vídeo. Se analiza en el propio teléfono; en un celular tarda más que en un ordenador, así que conviene dejar 4 fotogramas por segundo.</p>
-    <h2>Arrastra aquí un vídeo de la cámara</h2>
-    <p class="hint">MP4 o WebM. Lo procesa tu navegador: un minuto de vídeo tarda aproximadamente entre uno y tres minutos.</p>
+    <h2>Arrastra aquí un vídeo o una foto</h2>
+    <p class="hint">Vídeo MP4 o WebM: un minuto tarda aproximadamente entre uno y tres minutos. Foto JPG o PNG: cuenta las personas en unos segundos. Todo lo procesa tu navegador.</p>
     <div class="row" style="justify-content:center">
       <label class="btn primary">Elegir vídeo<input id="in-video" type="file" accept="video/*" hidden></label>
       <label class="btn solo-movil">Grabar con la cámara<input id="in-camara" type="file" accept="video/*" capture="environment" hidden></label>
+      <label class="btn">Contar en fotos<input id="in-foto" type="file" accept="image/*" multiple hidden></label>
+      <label class="btn solo-movil">Hacer una foto<input id="in-foto-cam" type="file" accept="image/*" capture="environment" hidden></label>
       <button class="btn" id="b-ejemplo">Probar con el vídeo de ejemplo</button>
+    </div>
+  </div>
+
+  <div id="paso-foto" class="panel" hidden>
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <div class="stack" style="gap:2px;min-width:0"><h2 id="fo-nombre">Contar personas en fotos</h2><span class="meta" id="fo-info"></span></div>
+        <div class="row" style="gap:8px"><label class="btn small">Añadir fotos<input id="fo-mas" type="file" accept="image/*" multiple hidden></label><label class="btn small solo-movil">Hacer otra foto<input id="fo-mas-cam" type="file" accept="image/*" capture="environment" hidden></label><button class="btn small" id="fo-volver">Volver</button></div>
+      </div>
+      <div id="fo-msg" class="note" hidden></div>
+      <div class="foto-visor"><canvas id="fo-lienzo"></canvas></div>
+      <div class="kpis k3">
+        <div class="kpi hl"><span class="l">Personas en esta foto</span><span class="v" id="fo-n">–</span><span class="s" id="fo-n-s">&nbsp;</span></div>
+        <div class="kpi"><span class="l">Dudosas</span><span class="v" id="fo-d">–</span><span class="s">en amarillo, no se cuentan</span></div>
+        <div class="kpi"><span class="l">Total de las fotos</span><span class="v" id="fo-total">–</span><span class="s" id="fo-total-s">&nbsp;</span></div>
+      </div>
+      <p class="hint">Verde: se cuenta. Amarillo: la herramienta duda y no la cuenta. Rojo: la has descartado. Toca una caja para cambiarla entre «se cuenta» y «no se cuenta». Si falta alguien, mantén pulsado o haz doble clic sobre esa persona para sumarla a mano.</p>
+      <div id="fo-tiras" class="foto-tiras"></div>
     </div>
   </div>
 
@@ -248,7 +275,7 @@ figcaption{color:var(--muted);font-size:13px}
       <label class="f" style="min-width:min(260px,100%);max-width:100%">Análisis<select id="r-sel"></select></label>
     </div>
   </div>
-  <div id="r-vacio" class="empty">Aún no hay análisis. Sube un vídeo en «Analizar vídeo».</div>
+  <div id="r-vacio" class="empty">Aún no hay análisis. Sube un vídeo en «Analizar».</div>
   <div id="r-cuerpo" class="panel" hidden>
     <div class="kpis" id="kpis"></div>
     <div class="tabs" role="tablist" id="tabs">

@@ -454,6 +454,8 @@
   drop.addEventListener("dragleave", () => drop.classList.remove("over"));
   drop.addEventListener("drop", (e) => {
     e.preventDefault(); drop.classList.remove("over");
+    const fotos = [...e.dataTransfer.files].filter(esImagen);
+    if (fotos.length) { abrirFotos(fotos); return; }
     const f = [...e.dataTransfer.files].find((x) => x.type.startsWith("video/") || /\.(mp4|webm|mov|m4v)$/i.test(x.name));
     if (f) cargarVideo(URL.createObjectURL(f), f.name, null, null);
   });
@@ -1241,6 +1243,168 @@
   try { if (localStorage.getItem("ent-guia") === "cerrada") $("ent-guia").open = false; } catch (_) {}
   $("ent-guia").addEventListener("toggle", () => { try { localStorage.setItem("ent-guia", $("ent-guia").open ? "abierta" : "cerrada"); } catch (_) {} });
   $("ent-camara").onchange = (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) abrirEntreno(URL.createObjectURL(f), nombreCamara()); };
+
+  /* -------------------------------------------- contar personas en fotos */
+  const F = { fotos: [], i: -1, ocupado: false };
+  const UMBRAL_FOTO = 0.35, MIN_FOTO = 0.15;
+  const esImagen = (f) => f.type.startsWith("image/") || /\.(jpe?g|png|webp|heic|heif|bmp|gif)$/i.test(f.name);
+
+  // Pasa una ventana (x, y, w, h) de la imagen por el detector y devuelve cajas en coordenadas de la imagen.
+  async function detectarVentana(m, img, x, y, w, h) {
+    const lb = Motor.letterbox(w, h, 640);
+    const lz = document.createElement("canvas"); lz.width = lz.height = 640;
+    const cx = lz.getContext("2d", { willReadFrequently: true });
+    cx.fillStyle = "rgb(114,114,114)"; cx.fillRect(0, 0, 640, 640);
+    cx.drawImage(img, x, y, w, h, lb.dx, lb.dy, lb.nw, lb.nh);
+    const r = await m.detectar(cx.getImageData(0, 0, 640, 640).data.buffer, lb, MIN_FOTO);
+    return r.cajas.map(([x1, y1, x2, y2, s]) => [x1 + x, y1 + y, x2 + x, y2 + y, s]);
+  }
+
+  // Foto completa y, si es grande, también por trozos solapados: así salen las personas pequeñas o lejanas.
+  async function detectarFoto(img) {
+    const W = img.naturalWidth, H = img.naturalHeight, m = crearMotor();
+    await m.listo;
+    let cajas = await detectarVentana(m, img, 0, 0, W, H);
+    const n = Math.max(W, H) >= 2400 ? 3 : Math.max(W, H) >= 1100 ? 2 : 1;
+    if (n > 1) {
+      const tw = Math.min(W, Math.round((W / n) * 1.35)), th = Math.min(H, Math.round((H / n) * 1.35));
+      const trabajos = [];
+      for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) {
+        const x = Math.round(((W - tw) * a) / (n - 1)), y = Math.round(((H - th) * b) / (n - 1));
+        trabajos.push(detectarVentana(m, img, x, y, tw, th).then((cs) => cs.filter((c) => {
+          // Una caja cortada por el borde interior del trozo es media persona: la encuentra otro trozo entero.
+          const m2 = 3;
+          return !((c[0] <= x + m2 && x > 0) || (c[1] <= y + m2 && y > 0) || (c[2] >= x + tw - m2 && x + tw < W) || (c[3] >= y + th - m2 && y + th < H));
+        })));
+      }
+      for (const cs of await Promise.all(trabajos)) cajas = cajas.concat(cs);
+    }
+    cajas.sort((a, b) => b[4] - a[4]);
+    const area = (c) => Math.max(0, c[2] - c[0]) * Math.max(0, c[3] - c[1]);
+    const dentro = (a, b) => {
+      const iw = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])), ih = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+      return (iw * ih) / Math.max(1, Math.min(area(a), area(b)));
+    };
+    const out = [];
+    for (const c of cajas) if (out.every((k) => Motor.iou(k, c) <= 0.45 && dentro(k, c) <= 0.85)) out.push(c);
+    return out.map(([x1, y1, x2, y2, s]) => ({ c: [x1, y1, x2, y2].map(Math.round), s: Math.round(s * 100) / 100, o: "m", e: s >= UMBRAL_FOTO ? "si" : "duda" }));
+  }
+
+  const cuentaFoto = (f) => f.cajas.filter((c) => c.e === "si").length;
+
+  function pintarFoto() {
+    const f = F.fotos[F.i], cv = $("fo-lienzo");
+    if (!f) return;
+    const W = f.img.naturalWidth, H = f.img.naturalHeight, esc = Math.min(1, 1600 / Math.max(W, H));
+    cv.width = Math.round(W * esc); cv.height = Math.round(H * esc);
+    const cx = cv.getContext("2d");
+    cx.drawImage(f.img, 0, 0, cv.width, cv.height);
+    const css = getComputedStyle(document.documentElement), col = { si: css.getPropertyValue("--good").trim() || "#2f7d4f", duda: css.getPropertyValue("--warn").trim() || "#a86a12", no: css.getPropertyValue("--bad").trim() || "#b03a2e" };
+    const g = Math.max(2, Math.round(cv.width / 400));
+    let k = 0;
+    for (const c of f.cajas) {
+      const [x1, y1, x2, y2] = c.c.map((v) => v * esc);
+      cx.lineWidth = c.e === "si" ? g : Math.max(1, g - 1);
+      cx.setLineDash(c.e === "si" ? [] : [g * 3, g * 2]);
+      cx.strokeStyle = col[c.e]; cx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+      if (c.e === "si") {
+        k++;
+        const t = String(k), fs = Math.max(14, Math.round(cv.width / 45));
+        cx.font = `600 ${fs}px system-ui,sans-serif`;
+        const tw = cx.measureText(t).width + fs * 0.6;
+        cx.fillStyle = col.si; cx.fillRect(x1, Math.max(0, y1 - fs * 1.3), tw, fs * 1.3);
+        cx.fillStyle = "#fff"; cx.fillText(t, x1 + fs * 0.3, Math.max(0, y1 - fs * 1.3) + fs * 1.0);
+      }
+    }
+    cx.setLineDash([]);
+    const n = cuentaFoto(f), d = f.cajas.filter((c) => c.e === "duda").length, man = f.cajas.filter((c) => c.o === "h").length, dec = f.cajas.filter((c) => c.o === "m" && ((c.s >= UMBRAL_FOTO) !== (c.e === "si"))).length;
+    $("fo-nombre").textContent = f.nombre;
+    $("fo-info").textContent = `${W} × ${H} px · foto ${F.i + 1} de ${F.fotos.length}`;
+    $("fo-n").textContent = fmtN(n);
+    $("fo-n-s").textContent = man || dec ? `con ${man + dec} ${man + dec === 1 ? "corrección tuya" : "correcciones tuyas"}` : "según la herramienta";
+    $("fo-d").textContent = fmtN(d);
+    const tot = F.fotos.reduce((a, x) => a + (x.cajas ? cuentaFoto(x) : 0), 0);
+    $("fo-total").textContent = fmtN(tot);
+    $("fo-total-s").textContent = `${F.fotos.length} ${F.fotos.length === 1 ? "foto" : "fotos"}`;
+    pintarTiras();
+  }
+
+  function pintarTiras() {
+    const el = $("fo-tiras");
+    el.hidden = F.fotos.length < 2;
+    el.replaceChildren(...F.fotos.map((f, i) => {
+      const b = document.createElement("button"); b.className = i === F.i ? "on" : "";
+      const im = document.createElement("img"); im.src = f.url; im.alt = "";
+      const t = document.createElement("span"); t.innerHTML = f.cajas ? `<b>${cuentaFoto(f)}</b> personas` : "Contando…";
+      b.append(im, t); b.onclick = () => { if (f.cajas) { F.i = i; pintarFoto(); } };
+      return b;
+    }));
+  }
+
+  async function abrirFotos(files) {
+    files = [...files].filter(esImagen);
+    if (!files.length) return;
+    $("paso-subir").hidden = true; $("paso-foto").hidden = false; $("msg-error").hidden = true;
+    const nuevas = files.map((file) => ({ nombre: file.name && !/^image\.\w+$/i.test(file.name) ? file.name : nombreCamara().replace("Cámara", "Foto"), url: URL.createObjectURL(file), img: null, cajas: null }));
+    F.fotos.push(...nuevas);
+    pintarTiras();
+    const msg = $("fo-msg");
+    for (const f of nuevas) {
+      msg.hidden = false; msg.className = "note"; msg.textContent = `Contando personas en «${f.nombre}»… La primera vez se cargan los modelos y tarda un poco más.`;
+      try {
+        f.img = new Image(); f.img.src = f.url; await f.img.decode();
+        f.cajas = await detectarFoto(f.img);
+        F.i = F.fotos.indexOf(f); pintarFoto();
+      } catch (err) {
+        F.fotos.splice(F.fotos.indexOf(f), 1);
+        msg.className = "note bad"; msg.textContent = `No se pudo leer «${f.nombre}» (${err.message || err}). Prueba con una foto JPG o PNG.`;
+        pintarTiras(); continue;
+      }
+      msg.hidden = true;
+    }
+    if (!F.fotos.length) { $("paso-foto").hidden = true; $("paso-subir").hidden = false; }
+  }
+
+  // Coordenadas de la imagen a partir de un toque en el lienzo.
+  function puntoFoto(e) {
+    const f = F.fotos[F.i], cv = $("fo-lienzo"), r = cv.getBoundingClientRect();
+    return [((e.clientX - r.left) / r.width) * f.img.naturalWidth, ((e.clientY - r.top) / r.height) * f.img.naturalHeight];
+  }
+  function anadirManual(e) {
+    const f = F.fotos[F.i]; if (!f?.cajas) return;
+    const [x, y] = puntoFoto(e), W = f.img.naturalWidth, H = f.img.naturalHeight;
+    const vistas = f.cajas.filter((c) => c.e === "si").map((c) => [c.c[2] - c.c[0], c.c[3] - c.c[1]]);
+    const med = (a) => a.sort((p, q) => p - q)[a.length >> 1];
+    const w = vistas.length ? med(vistas.map((v) => v[0])) : W * 0.08, h = vistas.length ? med(vistas.map((v) => v[1])) : H * 0.25;
+    f.cajas.push({ c: [x - w / 2, y - h / 2, x + w / 2, y + h / 2].map((v, i) => Math.round(Math.max(0, Math.min(i % 2 ? H : W, v)))), s: 1, o: "h", e: "si" });
+    pintarFoto();
+  }
+  {
+    const cv = $("fo-lienzo");
+    let pulsado = null, largo = false;
+    cv.addEventListener("pointerdown", (e) => { largo = false; clearTimeout(pulsado); pulsado = setTimeout(() => { largo = true; anadirManual(e); }, 550); });
+    cv.addEventListener("pointermove", (e) => { if (e.pointerType !== "mouse" && pulsado && Math.abs(e.movementX) + Math.abs(e.movementY) > 6) clearTimeout(pulsado); });
+    cv.addEventListener("pointerup", () => clearTimeout(pulsado));
+    cv.addEventListener("pointercancel", () => clearTimeout(pulsado));
+    cv.addEventListener("contextmenu", (e) => e.preventDefault());
+    cv.addEventListener("dblclick", (e) => { e.preventDefault(); anadirManual(e); });
+    cv.addEventListener("click", (e) => {
+      if (largo) return;
+      const f = F.fotos[F.i]; if (!f?.cajas) return;
+      const [x, y] = puntoFoto(e);
+      const bajo = f.cajas.filter((c) => x >= c.c[0] && x <= c.c[2] && y >= c.c[1] && y <= c.c[3]);
+      if (!bajo.length) return;
+      const c = bajo.reduce((a, b) => ((a.c[2] - a.c[0]) * (a.c[3] - a.c[1]) <= (b.c[2] - b.c[0]) * (b.c[3] - b.c[1]) ? a : b));
+      if (c.o === "h") f.cajas.splice(f.cajas.indexOf(c), 1);
+      else c.e = c.e === "si" ? "no" : "si";
+      pintarFoto();
+    });
+  }
+  $("in-foto").onchange = (e) => { const fs = [...e.target.files]; e.target.value = ""; abrirFotos(fs); };
+  $("in-foto-cam").onchange = (e) => { const fs = [...e.target.files]; e.target.value = ""; abrirFotos(fs); };
+  $("fo-mas").onchange = (e) => { const fs = [...e.target.files]; e.target.value = ""; abrirFotos(fs); };
+  $("fo-mas-cam").onchange = (e) => { const fs = [...e.target.files]; e.target.value = ""; abrirFotos(fs); };
+  $("fo-volver").onclick = () => { for (const f of F.fotos) URL.revokeObjectURL(f.url); F.fotos = []; F.i = -1; $("paso-foto").hidden = true; $("paso-subir").hidden = false; };
   $("ent-in").onchange = (e) => { const f = e.target.files[0]; if (f) abrirEntreno(URL.createObjectURL(f), f.name); e.target.value = ""; };
   const dropEnt = $("ent-subir");
   dropEnt.addEventListener("dragover", (e) => { e.preventDefault(); dropEnt.classList.add("over"); });
@@ -1253,7 +1417,7 @@
   $("ent-otro").onclick = () => { pararEnt(); E.buscando++; if (E.v) E.v.remove(); E.v = null; $("ent-trabajo").hidden = true; $("ent-subir").hidden = $("ent-bib-bloque").hidden = $("ent-previos").hidden = false; pintarEntrenos(); };
 
   /* ----------------------------------------------------------- arranque */
-  window.App = { analizar, estadisticas: Motor.estadisticas, EJEMPLO, BIBLIOTECA, S, E, crearMotor };
+  window.App = { F, detectarFoto, analizar, estadisticas: Motor.estadisticas, EJEMPLO, BIBLIOTECA, S, E, crearMotor };
   pintarPlantillas(); pintarVentas(); pintarSelector(); limpiarForm(); pintarPruebas(); pintarBiblioteca();
   iniciarDatos();
 })();
