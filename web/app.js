@@ -146,6 +146,24 @@
     return motor;
   }
 
+  /* ------------------------------------- piezas comunes de detección */
+  // Confianza desde la que una caja cuenta como persona sin preguntar (vídeo, fotos y entrenamiento).
+  const UMBRAL_PERSONA = 0.35;
+  // Encaja una imagen o un trozo (rec = [x, y, ancho, alto]) en 640x640 con relleno gris, como espera YOLO.
+  function pixelesYolo(cx, fuente, lb, rec) {
+    cx.fillStyle = "rgb(114,114,114)"; cx.fillRect(0, 0, 640, 640);
+    if (rec) cx.drawImage(fuente, rec[0], rec[1], rec[2], rec[3], lb.dx, lb.dy, lb.nw, lb.nh);
+    else cx.drawImage(fuente, lb.dx, lb.dy, lb.nw, lb.nh);
+    return cx.getImageData(0, 0, 640, 640).data.buffer;
+  }
+  let lienzoYolo = null;
+  const ctxYolo = () => (lienzoYolo ||= Object.assign(document.createElement("canvas"), { width: 640, height: 640 })).getContext("2d", { willReadFrequently: true });
+  // Cajas del detector [x1, y1, x2, y2, s] -> cajas revisables {c, s, o, e}.
+  const aRevisables = (cajas) => cajas.map(([x1, y1, x2, y2, s]) => ({ c: [x1, y1, x2, y2].map(Math.round), s: Math.round(s * 100) / 100, o: "m", e: s >= UMBRAL_PERSONA ? "si" : "duda" }));
+  // Formato guardado en entrenamiento/: [x1, y1, x2, y2, s, o, e, ajustada].
+  const cajaAFila = (b) => [...b.c, b.s, b.o, b.e, b.aj ? 1 : 0];
+  const filaACaja = ([x1, y1, x2, y2, s, o, e, aj]) => ({ c: [x1, y1, x2, y2], s, o, e, aj: !!aj });
+
   /* -------------------------------------------------- análisis de vídeo */
   function esperar(el, ev) { return new Promise((ok, mal) => { const f = () => { el.removeEventListener(ev, f); el.removeEventListener("error", g); ok(); }; const g = () => { el.removeEventListener(ev, f); mal(new Error("No se pudo leer el vídeo en este navegador (prueba con MP4 H.264).")); }; el.addEventListener(ev, f); el.addEventListener("error", g); }); }
   async function irAt(v, t) {
@@ -170,8 +188,7 @@
     const v = await abrirVideo(url);
     const W = v.videoWidth, Hh = v.videoHeight, dur = v.duration;
     const lb = Motor.letterbox(W, Hh, 640);
-    const lienzo = document.createElement("canvas"); lienzo.width = lienzo.height = 640;
-    const cx = lienzo.getContext("2d", { willReadFrequently: true });
+    const cx = ctxYolo();
     const fps = ajustes.fps, N = Math.max(1, Math.floor(dur * fps));
     const tracker = new Motor.ByteTrack({ maxPerdido: Math.round(2 * fps) });
     const reid = new Motor.Reidentificador();
@@ -184,9 +201,7 @@
 
     async function capturar(k) {
       await irAt(v, Math.min(dur - 0.001, k / fps));
-      cx.fillStyle = "rgb(114,114,114)"; cx.fillRect(0, 0, 640, 640);
-      cx.drawImage(v, lb.dx, lb.dy, lb.nw, lb.nh);
-      return cx.getImageData(0, 0, 640, 640).data.buffer;
+      return pixelesYolo(cx, v, lb);
     }
     function procesar(k, r) {
       const t = k / fps;
@@ -194,7 +209,7 @@
       const pistas = tracker.actualizar(r.cajas);
       reg.observar(t, pistas);
       registro.push([Math.round(t * 100) / 100, pistas.map((p) => [p.id, ...p.caja.map(Math.round)])]);
-      const fiables = r.cajas.filter((c) => c[4] >= 0.35).length;
+      const fiables = r.cajas.filter((c) => c[4] >= UMBRAL_PERSONA).length;
       if (fiables < fondoN) { fondoN = fiables; fondo = img; }
       const pedir = reid.observar(img, aImg, t, pistas, W, Hh);
       if (pedir.length) {
@@ -878,7 +893,7 @@
 
   /* ------------------------------------------------------ entrenamiento */
   // Revisión humana fotograma a fotograma. Cada caja: {c: [x1, y1, x2, y2], s: confianza, o: "m" modelo | "h" humano, e: "si" | "no" | "duda"}.
-  const ALTA = 0.35;
+  const ALTA = UMBRAL_PERSONA;
   const E = { sel: null, saltando: false, avisoDudas: false, v: null, url: null, id: null, nombre: "", ancho: 0, alto: 0, duracion: 0, t: 0, cajas: [], deshacer: [], fotos: new Map(), arr: null, buscando: 0, jugando: false };
   const claveT = (t) => (Math.round(t * 100) / 100).toFixed(2);
   const slug = (s) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "video";
@@ -944,11 +959,8 @@
   async function detectarEnt() {
     const m = crearMotor(); await m.listo;
     const lb = Motor.letterbox(E.ancho, E.alto, 640);
-    const lz = document.createElement("canvas"); lz.width = lz.height = 640;
-    const cx = lz.getContext("2d", { willReadFrequently: true });
-    cx.fillStyle = "rgb(114,114,114)"; cx.fillRect(0, 0, 640, 640); cx.drawImage(E.v, lb.dx, lb.dy, lb.nw, lb.nh);
-    const r = await m.detectar(cx.getImageData(0, 0, 640, 640).data.buffer, lb, 0.1);
-    return r.cajas.map(([x1, y1, x2, y2, s]) => ({ c: [x1, y1, x2, y2].map(Math.round), s: Math.round(s * 100) / 100, o: "m", e: s >= ALTA ? "si" : "duda" }));
+    const r = await m.detectar(pixelesYolo(ctxYolo(), E.v, lb), lb, 0.1);
+    return aRevisables(r.cajas);
   }
   function textoDeteccion() {
     const n = E.cajas.filter((c) => c.e === "si").length, d = E.cajas.filter((c) => c.e === "duda").length;
@@ -966,7 +978,7 @@
     E.deshacer = [];
     const guardado = E.fotos.get(claveT(t));
     if (guardado) {
-      E.cajas = guardado.cajas.map(([x1, y1, x2, y2, s, o, e, aj]) => ({ c: [x1, y1, x2, y2], s, o, e, aj: !!aj }));
+      E.cajas = guardado.cajas.map(filaACaja);
       pintarEnt(); $("ent-msg").textContent = "Este fotograma ya está revisado. Si cambias algo, vuelve a guardarlo.";
       return;
     }
@@ -1175,7 +1187,7 @@
     const dudas = E.cajas.filter((b) => b.e === "duda").length;
     if (dudas && !E.avisoDudas) { E.avisoDudas = true; $("ent-msg").textContent = `Quedan ${dudas} ${dudas === 1 ? "caja amarilla" : "cajas amarillas"} sin decidir: no contarán como persona. Pulsa otra vez «Guardar y seguir» para guardar así.`; return; }
     E.avisoDudas = false; E.sel = null;
-    E.fotos.set(claveT(t), { t: Math.round(t * 100) / 100, cajas: E.cajas.map((b) => [...b.c, b.s, b.o, b.e, b.aj ? 1 : 0]) });
+    E.fotos.set(claveT(t), { t: Math.round(t * 100) / 100, cajas: E.cajas.map(cajaAFila) });
     const ok = await persistirEnt();
     pintarListaEnt(); resumenEnt();
     $("ent-msg-guardado").textContent = ok ? "" : "Guardado solo mientras esta página siga abierta.";
@@ -1212,36 +1224,43 @@
       s.onload = ok; s.onerror = () => { zipCargado = null; mal(new Error("no se pudo cargar el compresor")); }; document.head.appendChild(s);
     }));
   }
+  // Empaqueta fotogramas o fotos revisados en un .zip con formato YOLO (images/, labels/, data.yaml) y lo ofrece para descargar.
+  // muestras: [{base, ancho, alto, filas, pintar(cx, W, H)}]; filas en el formato de cajaAFila.
+  async function descargarZipYolo(nombreZip, muestras, anotaciones, leeme, msg) {
+    if (!S.downloads) { msg.textContent = "La descarga no está disponible en esta vista."; return false; }
+    try {
+      await cargarZip();
+      const zip = new window.JSZip(), lz = document.createElement("canvas"), cx = lz.getContext("2d");
+      let i = 0;
+      for (const mu of muestras) {
+        msg.textContent = `Preparando imagen ${++i} de ${muestras.length}…`;
+        const e2 = Math.min(1, 1280 / Math.max(mu.ancho, mu.alto));
+        lz.width = Math.round(mu.ancho * e2); lz.height = Math.round(mu.alto * e2);
+        await mu.pintar(cx, lz.width, lz.height);
+        zip.file(`images/${mu.base}.jpg`, await new Promise((ok) => lz.toBlob(ok, "image/jpeg", 0.9)));
+        zip.file(`labels/${mu.base}.txt`, mu.filas.filter((c) => c[6] === "si").map(([x1, y1, x2, y2]) =>
+          ["0", (x1 + x2) / 2 / mu.ancho, (y1 + y2) / 2 / mu.alto, (x2 - x1) / mu.ancho, (y2 - y1) / mu.alto].map((x, k) => (k ? x.toFixed(6) : x)).join(" ")).join("\n"));
+      }
+      zip.file("data.yaml", "# Una sola clase: persona (clase 0 de COCO).\npath: .\ntrain: images\nval: images\nnames:\n  0: person\n");
+      zip.file("anotaciones.json", JSON.stringify(anotaciones, null, 1));
+      zip.file("LEEME.txt", leeme + "\n\nimages/: imágenes en JPG.\nlabels/: una línea por persona en formato YOLO (clase cx cy ancho alto, normalizado de 0 a 1).\nanotaciones.json: todas las cajas, incluidas las descartadas como falsas alarmas.\n\nPara reentrenar el detector con uno o varios .zip (de vídeos y de fotos):\n  python scripts/entrenar_detector.py entrenamiento-*.zip\n");
+      msg.textContent = "Comprimiendo…";
+      await S.downloads.save({ filename: nombreZip, data: await zip.generateAsync({ type: "blob" }) });
+      return true;
+    } catch (e) {
+      msg.textContent = e && e.code === "declined" ? "" : "No se pudo exportar: " + (e.message || e.code || e);
+      return false;
+    }
+  }
   $("ent-exportar").onclick = async () => {
     if (!E.v || !E.fotos.size) return;
     const msg = $("ent-msg-exp"), b = $("ent-exportar");
-    if (!S.downloads) { msg.textContent = "La descarga no está disponible en esta vista."; return; }
     pararEnt(); b.disabled = true;
-    try {
-      await cargarZip();
-      const zip = new window.JSZip(), fs = [...E.fotos.values()].sort((a, b) => a.t - b.t);
-      const esc2 = Math.min(1, 1280 / E.ancho), W = Math.round(E.ancho * esc2), H = Math.round(E.alto * esc2);
-      const lz = document.createElement("canvas"); lz.width = W; lz.height = H; const cx = lz.getContext("2d");
-      let i = 0;
-      for (const f of fs) {
-        msg.textContent = `Preparando fotograma ${++i} de ${fs.length}…`;
-        await irAt(E.v, f.t); cx.drawImage(E.v, 0, 0, W, H);
-        const jpg = await new Promise((ok) => lz.toBlob(ok, "image/jpeg", 0.9));
-        const base = `${E.id}_${String(Math.round(f.t * 100)).padStart(6, "0")}`;
-        zip.file(`images/${base}.jpg`, jpg);
-        zip.file(`labels/${base}.txt`, f.cajas.filter((c) => c[6] === "si").map(([x1, y1, x2, y2]) =>
-          ["0", (x1 + x2) / 2 / E.ancho, (y1 + y2) / 2 / E.alto, (x2 - x1) / E.ancho, (y2 - y1) / E.alto].map((x, k) => (k ? x.toFixed(6) : x)).join(" ")).join("\n"));
-      }
-      zip.file("data.yaml", "# Una sola clase: persona (clase 0 de COCO).\npath: .\ntrain: images\nval: images\nnames:\n  0: person\n");
-      zip.file("anotaciones.json", JSON.stringify({ video: E.nombre, ancho: E.ancho, alto: E.alto, fotogramas: fs }, null, 1));
-      zip.file("LEEME.txt", "Datos de entrenamiento del detector de personas, revisados a mano.\n\nimages/: fotogramas en JPG.\nlabels/: una línea por persona en formato YOLO (clase cx cy ancho alto, normalizado de 0 a 1).\nanotaciones.json: todas las cajas, incluidas las que se descartaron como falsas alarmas.\n\nPara reentrenar el detector con uno o varios de estos .zip:\n  python scripts/entrenar_detector.py entrenamiento-*.zip\n");
-      msg.textContent = "Comprimiendo…";
-      const blob = await zip.generateAsync({ type: "blob" });
-      await S.downloads.save({ filename: `entrenamiento-${E.id}.zip`, data: blob });
-      msg.textContent = `${fs.length} fotogramas exportados.`;
-    } catch (e) {
-      msg.textContent = e && e.code === "declined" ? "" : "No se pudo exportar: " + (e.message || e.code || e);
-    }
+    const fs = [...E.fotos.values()].sort((a, b) => a.t - b.t);
+    const muestras = fs.map((f) => ({ base: `${E.id}_${String(Math.round(f.t * 100)).padStart(6, "0")}`, ancho: E.ancho, alto: E.alto, filas: f.cajas,
+      pintar: async (cx, W, H) => { await irAt(E.v, f.t); cx.drawImage(E.v, 0, 0, W, H); } }));
+    if (await descargarZipYolo(`entrenamiento-${E.id}.zip`, muestras, { video: E.nombre, ancho: E.ancho, alto: E.alto, fotogramas: fs },
+      "Fotogramas de vídeo revisados a mano para entrenar el detector de personas.", msg)) msg.textContent = `${fs.length} fotogramas exportados.`;
     b.disabled = false; await irAEnt(E.t);
   };
 
@@ -1251,17 +1270,13 @@
 
   /* -------------------------------------------- contar personas en fotos */
   const F = { fotos: [], i: -1, ocupado: false };
-  const UMBRAL_FOTO = 0.35, MIN_FOTO = 0.15;
+  const MIN_FOTO = 0.15;
   const esImagen = (f) => f.type.startsWith("image/") || /\.(jpe?g|png|webp|heic|heif|bmp|gif)$/i.test(f.name);
 
   // Pasa una ventana (x, y, w, h) de la imagen por el detector y devuelve cajas en coordenadas de la imagen.
   async function detectarVentana(m, img, x, y, w, h) {
     const lb = Motor.letterbox(w, h, 640);
-    const lz = document.createElement("canvas"); lz.width = lz.height = 640;
-    const cx = lz.getContext("2d", { willReadFrequently: true });
-    cx.fillStyle = "rgb(114,114,114)"; cx.fillRect(0, 0, 640, 640);
-    cx.drawImage(img, x, y, w, h, lb.dx, lb.dy, lb.nw, lb.nh);
-    const r = await m.detectar(cx.getImageData(0, 0, 640, 640).data.buffer, lb, MIN_FOTO);
+    const r = await m.detectar(pixelesYolo(ctxYolo(), img, lb, [x, y, w, h]), lb, MIN_FOTO);
     return r.cajas.map(([x1, y1, x2, y2, s]) => [x1 + x, y1 + y, x2 + x, y2 + y, s]);
   }
 
@@ -1292,7 +1307,7 @@
     };
     const out = [];
     for (const c of cajas) if (out.every((k) => Motor.iou(k, c) <= 0.45 && dentro(k, c) <= 0.85)) out.push(c);
-    return out.map(([x1, y1, x2, y2, s]) => ({ c: [x1, y1, x2, y2].map(Math.round), s: Math.round(s * 100) / 100, o: "m", e: s >= UMBRAL_FOTO ? "si" : "duda" }));
+    return aRevisables(out);
   }
 
   const cuentaFoto = (f) => f.cajas.filter((c) => c.e === "si").length;
@@ -1322,7 +1337,7 @@
       }
     }
     cx.setLineDash([]);
-    const n = cuentaFoto(f), d = f.cajas.filter((c) => c.e === "duda").length, man = f.cajas.filter((c) => c.o === "h").length, dec = f.cajas.filter((c) => c.o === "m" && ((c.s >= UMBRAL_FOTO) !== (c.e === "si"))).length;
+    const n = cuentaFoto(f), d = f.cajas.filter((c) => c.e === "duda").length, man = f.cajas.filter((c) => c.o === "h").length, dec = f.cajas.filter((c) => c.o === "m" && ((c.s >= UMBRAL_PERSONA) !== (c.e === "si"))).length;
     $("fo-nombre").textContent = f.nombre;
     $("fo-info").textContent = `${W} × ${H} px · foto ${F.i + 1} de ${F.fotos.length}`;
     $("fo-n").textContent = fmtN(n);
@@ -1362,7 +1377,7 @@
         const previo = S.entrenos.find((d) => d.id === f.id);
         let guardadas = null;
         try { guardadas = previo && JSON.parse(previo.fotogramas)[0]?.cajas; } catch (_) {}
-        f.cajas = guardadas ? guardadas.map(([x1, y1, x2, y2, sc, o, e]) => ({ c: [x1, y1, x2, y2], s: sc, o, e })) : await detectarFoto(f.img);
+        f.cajas = guardadas ? guardadas.map(filaACaja) : await detectarFoto(f.img);
         f.recuperada = !!guardadas;
         guardarFoto(f, true);
         F.i = F.fotos.indexOf(f); pintarFoto();
@@ -1381,7 +1396,7 @@
     clearTimeout(f.temp);
     f.temp = setTimeout(async () => {
       const doc = { nombre: f.nombre, tipo: "foto", ancho: f.img.naturalWidth, alto: f.img.naturalHeight, duracion: 0,
-        fotogramas: JSON.stringify([{ t: 0, cajas: f.cajas.map((b) => [...b.c, b.s, b.o, b.e, 0]) }]), actualizado: new Date().toISOString() };
+        fotogramas: JSON.stringify([{ t: 0, cajas: f.cajas.map(cajaAFila) }]), actualizado: new Date().toISOString() };
       S.entrenos = S.entrenos.filter((d) => d.id !== f.id).concat([{ id: f.id, ...doc }]);
       f.guardada = await guardar("entrenamiento/" + f.id, doc);
       if (F.fotos[F.i] === f) estadoGuardadoFoto();
@@ -1397,28 +1412,13 @@
   $("fo-exportar").onclick = async () => {
     const fs = F.fotos.filter((x) => x.cajas), msg = $("fo-msg-exp"), b = $("fo-exportar");
     if (!fs.length) return;
-    if (!S.downloads) { msg.textContent = "La descarga no está disponible en esta vista."; return; }
     b.disabled = true;
-    try {
-      await cargarZip();
-      const zip = new window.JSZip(), lz = document.createElement("canvas"), cx = lz.getContext("2d");
-      let i = 0;
-      for (const f of fs) {
-        msg.textContent = `Preparando foto ${++i} de ${fs.length}…`;
-        const W0 = f.img.naturalWidth, H0 = f.img.naturalHeight, e2 = Math.min(1, 1280 / Math.max(W0, H0));
-        lz.width = Math.round(W0 * e2); lz.height = Math.round(H0 * e2); cx.drawImage(f.img, 0, 0, lz.width, lz.height);
-        zip.file(`images/${f.id}.jpg`, await new Promise((ok) => lz.toBlob(ok, "image/jpeg", 0.9)));
-        zip.file(`labels/${f.id}.txt`, f.cajas.filter((c) => c.e === "si").map(({ c: [x1, y1, x2, y2] }) =>
-          ["0", (x1 + x2) / 2 / W0, (y1 + y2) / 2 / H0, (x2 - x1) / W0, (y2 - y1) / H0].map((x, k) => (k ? x.toFixed(6) : x)).join(" ")).join("\n"));
-      }
-      zip.file("data.yaml", "# Una sola clase: persona (clase 0 de COCO).\npath: .\ntrain: images\nval: images\nnames:\n  0: person\n");
-      zip.file("anotaciones.json", JSON.stringify({ fotos: fs.map((f) => ({ id: f.id, nombre: f.nombre, ancho: f.img.naturalWidth, alto: f.img.naturalHeight, cajas: f.cajas.map((b) => [...b.c, b.s, b.o, b.e, 0]) })) }, null, 1));
-      zip.file("LEEME.txt", "Fotos revisadas a mano para entrenar el detector de personas.\n\nimages/: las fotos en JPG.\nlabels/: una línea por persona en formato YOLO (clase cx cy ancho alto, normalizado de 0 a 1).\nanotaciones.json: todas las cajas, incluidas las descartadas.\n\nSe puede juntar con los .zip de vídeos:\n  python scripts/entrenar_detector.py entrenamiento-*.zip\n");
-      msg.textContent = "Comprimiendo…";
-      const d = new Date();
-      await S.downloads.save({ filename: `entrenamiento-fotos-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.zip`, data: await zip.generateAsync({ type: "blob" }) });
-      msg.textContent = `${fs.length} ${fs.length === 1 ? "foto exportada" : "fotos exportadas"}.`;
-    } catch (e) { msg.textContent = e && e.code === "declined" ? "" : "No se pudo exportar: " + (e.message || e.code || e); }
+    const filas = (f) => f.cajas.map(cajaAFila);
+    const muestras = fs.map((f) => ({ base: f.id, ancho: f.img.naturalWidth, alto: f.img.naturalHeight, filas: filas(f), pintar: (cx, W, H) => cx.drawImage(f.img, 0, 0, W, H) }));
+    const d = new Date();
+    if (await descargarZipYolo(`entrenamiento-fotos-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.zip`, muestras,
+      { fotos: fs.map((f) => ({ id: f.id, nombre: f.nombre, ancho: f.img.naturalWidth, alto: f.img.naturalHeight, cajas: filas(f) })) },
+      "Fotos revisadas a mano para entrenar el detector de personas.", msg)) msg.textContent = `${fs.length} ${fs.length === 1 ? "foto exportada" : "fotos exportadas"}.`;
     b.disabled = false;
   };
 
