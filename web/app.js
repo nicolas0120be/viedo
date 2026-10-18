@@ -432,6 +432,13 @@
   }
   $("c-fps").onchange = estimar;
   $("in-video").onchange = (e) => { const f = e.target.files[0]; if (f) cargarVideo(URL.createObjectURL(f), f.name, null, null); e.target.value = ""; };
+  // Vídeo grabado con la cámara del celular: se nombra con la hora y, en el teléfono, se analiza a 4 fotogramas por segundo.
+  const nombreCamara = () => { const d = new Date(); return `Cámara del celular ${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  $("in-camara").onchange = async (e) => {
+    const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+    await cargarVideo(URL.createObjectURL(f), nombreCamara(), isoLocal(new Date(Date.now() - 60000)), null);
+    if ([...$("c-fps").options].some((o) => o.value === "4")) { $("c-fps").value = "4"; estimar(); }
+  };
   $("b-ejemplo").onclick = async () => {
     const b = $("b-ejemplo"), txt = b.textContent;
     b.textContent = "Descargando el vídeo de ejemplo…"; b.disabled = true;
@@ -865,7 +872,7 @@
   /* ------------------------------------------------------ entrenamiento */
   // Revisión humana fotograma a fotograma. Cada caja: {c: [x1, y1, x2, y2], s: confianza, o: "m" modelo | "h" humano, e: "si" | "no" | "duda"}.
   const ALTA = 0.35;
-  const E = { v: null, url: null, id: null, nombre: "", ancho: 0, alto: 0, duracion: 0, t: 0, cajas: [], deshacer: [], fotos: new Map(), arr: null, buscando: 0, jugando: false };
+  const E = { sel: null, saltando: false, avisoDudas: false, v: null, url: null, id: null, nombre: "", ancho: 0, alto: 0, duracion: 0, t: 0, cajas: [], deshacer: [], fotos: new Map(), arr: null, buscando: 0, jugando: false };
   const claveT = (t) => (Math.round(t * 100) / 100).toFixed(2);
   const slug = (s) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "video";
 
@@ -921,70 +928,127 @@
     const r = $("ent-t"); r.max = String(Math.max(0, E.duracion - 0.05)); r.value = "0";
     v.defaultPlaybackRate = v.playbackRate = +$("ent-vel").value;
     $("ent-subir").hidden = $("ent-bib-bloque").hidden = $("ent-previos").hidden = true; $("ent-trabajo").hidden = false;
+    $("ent-guia").open = false;
     pintarListaEnt(); resumenEnt();
     await irAEnt(0);
   }
 
-  async function irAEnt(t) {
+  // Detecta personas en el fotograma que muestra ahora E.v. Devuelve las cajas ya clasificadas.
+  async function detectarEnt() {
+    const m = crearMotor(); await m.listo;
+    const lb = Motor.letterbox(E.ancho, E.alto, 640);
+    const lz = document.createElement("canvas"); lz.width = lz.height = 640;
+    const cx = lz.getContext("2d", { willReadFrequently: true });
+    cx.fillStyle = "rgb(114,114,114)"; cx.fillRect(0, 0, 640, 640); cx.drawImage(E.v, lb.dx, lb.dy, lb.nw, lb.nh);
+    const r = await m.detectar(cx.getImageData(0, 0, 640, 640).data.buffer, lb, 0.1);
+    return r.cajas.map(([x1, y1, x2, y2, s]) => ({ c: [x1, y1, x2, y2].map(Math.round), s: Math.round(s * 100) / 100, o: "m", e: s >= ALTA ? "si" : "duda" }));
+  }
+  function textoDeteccion() {
+    const n = E.cajas.filter((c) => c.e === "si").length, d = E.cajas.filter((c) => c.e === "duda").length;
+    return `La herramienta ve ${n} ${n === 1 ? "persona" : "personas"}` + (d ? ` y duda en ${d} ${d === 1 ? "caja" : "cajas"} (amarillo).` : ".") + (n || d ? " Revisa y corrige; si todo está bien, pulsa «Guardar y seguir»." : " Si hay alguien, dibuja su caja; si no hay nadie, guarda igualmente.");
+  }
+
+  async function irAEnt(t, cajasPrevias) {
     if (!E.v) return;
     pararEnt();
     t = Math.max(0, Math.min(E.duracion - 0.05, t));
     const turno = ++E.buscando;
-    E.t = t; $("ent-t").value = String(t);
+    E.t = t; E.sel = null; E.avisoDudas = false; $("ent-t").value = String(t);
     await irAt(E.v, t);
     if (turno !== E.buscando) return;
     E.deshacer = [];
     const guardado = E.fotos.get(claveT(t));
     if (guardado) {
-      E.cajas = guardado.cajas.map(([x1, y1, x2, y2, s, o, e]) => ({ c: [x1, y1, x2, y2], s, o, e }));
-      pintarEnt(); $("ent-msg").textContent = "Fotograma ya revisado. Si cambias algo, vuelve a guardarlo.";
+      E.cajas = guardado.cajas.map(([x1, y1, x2, y2, s, o, e, aj]) => ({ c: [x1, y1, x2, y2], s, o, e, aj: !!aj }));
+      pintarEnt(); $("ent-msg").textContent = "Este fotograma ya está revisado. Si cambias algo, vuelve a guardarlo.";
       return;
     }
+    if (cajasPrevias) { E.cajas = cajasPrevias; pintarEnt(); $("ent-msg").textContent = textoDeteccion(); return; }
     E.cajas = []; pintarEnt();
     $("ent-msg").textContent = "Buscando personas…";
     try {
-      const m = crearMotor(); await m.listo;
-      const lb = Motor.letterbox(E.ancho, E.alto, 640);
-      const lz = document.createElement("canvas"); lz.width = lz.height = 640;
-      const cx = lz.getContext("2d", { willReadFrequently: true });
-      cx.fillStyle = "rgb(114,114,114)"; cx.fillRect(0, 0, 640, 640); cx.drawImage(E.v, lb.dx, lb.dy, lb.nw, lb.nh);
-      const r = await m.detectar(cx.getImageData(0, 0, 640, 640).data.buffer, lb, 0.1);
+      const cajas = await detectarEnt();
       if (turno !== E.buscando) return;
-      E.cajas = r.cajas.map(([x1, y1, x2, y2, s]) => ({ c: [x1, y1, x2, y2].map(Math.round), s: Math.round(s * 100) / 100, o: "m", e: s >= ALTA ? "si" : "duda" }));
-      const n = E.cajas.filter((c) => c.e === "si").length, d = E.cajas.length - n;
-      $("ent-msg").textContent = `La herramienta ve ${n} ${n === 1 ? "persona" : "personas"}` + (d ? ` y ${d} ${d === 1 ? "dudosa" : "dudosas"}.` : ".") + " Corrige lo que falte y guarda.";
+      E.cajas = cajas;
+      $("ent-msg").textContent = textoDeteccion();
     } catch (e) { $("ent-msg").textContent = "No se pudo ejecutar el detector: " + e.message; }
     pintarEnt();
   }
 
+  // Avanza paso a paso, sin parar, hasta un fotograma sin revisar donde la herramienta duda.
+  $("ent-dudas").onclick = async () => {
+    if (!E.v) return;
+    if (E.saltando) { E.saltando = false; return; }
+    pararEnt();
+    const paso = +$("ent-paso").value, b = $("ent-dudas"), txt = b.textContent;
+    E.saltando = true; b.textContent = "Detener búsqueda";
+    const turno = ++E.buscando;
+    let t = E.t + paso, hallado = null;
+    try {
+      while (E.saltando && turno === E.buscando && t < E.duracion - 0.05) {
+        $("ent-msg").textContent = `Buscando dudas… ${fmtDur(t)} de ${fmtDur(E.duracion)}`;
+        if (!E.fotos.has(claveT(t))) {
+          await irAt(E.v, t); E.t = t; $("ent-t").value = String(t); pintarEnt();
+          const cajas = await detectarEnt();
+          if (cajas.some((c) => c.e === "duda")) { hallado = { t, cajas }; break; }
+        }
+        t += paso;
+      }
+    } catch (e) { $("ent-msg").textContent = "No se pudo ejecutar el detector: " + e.message; }
+    const seguia = E.saltando && turno === E.buscando;
+    E.saltando = false; b.textContent = txt;
+    if (hallado) return irAEnt(hallado.t, hallado.cajas);
+    if (seguia) { await irAEnt(Math.min(t, E.duracion - 0.05)); $("ent-msg").textContent = "No hay más fotogramas con dudas hasta el final del vídeo."; }
+    else await irAEnt(E.t);
+  };
+
   const COL_ENT = { si: "#17a2c4", duda: "#e0b000", no: "#d9534f", h: "#2fbf5f" };
+  const colorCaja = (b) => (b.o === "h" ? COL_ENT.h : COL_ENT[b.e]);
   function pintarEnt() {
     const cv = $("ent-cv"), ctx = cv.getContext("2d");
     if (E.v) ctx.drawImage(E.v, 0, 0, E.ancho, E.alto);
-    if (E.jugando) return;
+    const barra = $("ent-acciones");
+    if (E.jugando || E.saltando) { barra.hidden = true; return; }
     const lw = Math.max(2, E.ancho / 320);
-    for (const b of E.cajas) {
-      const [x1, y1, x2, y2] = b.c, col = b.o === "h" ? COL_ENT.h : COL_ENT[b.e];
-      ctx.lineWidth = b.o === "h" ? lw * 1.4 : lw; ctx.strokeStyle = col;
+    E.cajas.forEach((b, i) => {
+      const [x1, y1, x2, y2] = b.c, col = colorCaja(b), sel = i === E.sel;
+      ctx.lineWidth = (b.o === "h" ? lw * 1.4 : lw) * (sel ? 1.6 : 1); ctx.strokeStyle = col;
       ctx.setLineDash(b.e === "si" ? [] : [lw * 3, lw * 2]);
       ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
       if (b.e === "no") { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.moveTo(x2, y1); ctx.lineTo(x1, y2); ctx.stroke(); }
-      if (b.o === "m" && b.e !== "no") {
-        ctx.setLineDash([]); ctx.font = `600 ${Math.round(lw * 6)}px system-ui`; ctx.fillStyle = col;
+      ctx.setLineDash([]);
+      if (b.o === "m" && b.e !== "no" && !sel) {
+        ctx.font = `600 ${Math.round(lw * 6)}px system-ui`; ctx.fillStyle = col;
         ctx.fillText(Math.round(b.s * 100) + "%", x1 + lw, Math.max(lw * 7, y1 - lw * 2));
       }
-    }
-    ctx.setLineDash([]);
-    if (E.arr && E.arr.b) {
+      if (sel) {
+        ctx.fillStyle = "#ffffff"; ctx.strokeStyle = col; ctx.lineWidth = lw;
+        const h = lw * 4;
+        for (const [px, py] of [[x1, y1], [x2, y1], [x1, y2], [x2, y2]]) { ctx.fillRect(px - h / 2, py - h / 2, h, h); ctx.strokeRect(px - h / 2, py - h / 2, h, h); }
+      }
+    });
+    if (E.arr && E.arr.modo === "dibujar" && E.arr.b) {
       const [a, b] = [E.arr.a, E.arr.b]; ctx.strokeStyle = COL_ENT.h; ctx.lineWidth = lw; ctx.setLineDash([lw * 2, lw * 2]);
       ctx.strokeRect(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])); ctx.setLineDash([]);
     }
-    const n = (f) => E.cajas.filter(f).length;
+    // Barra de acciones junto a la caja seleccionada.
+    const b = E.cajas[E.sel];
+    if (b && !E.arr) {
+      const r = cv.getBoundingClientRect(), f = r.width / E.ancho;
+      $("ent-a-si").hidden = b.o === "h" || b.e === "si";
+      $("ent-a-no").hidden = b.o === "h" || b.e === "no";
+      $("ent-a-borrar").hidden = b.o !== "h";
+      $("ent-a-estado").textContent = b.o === "h" ? "Añadida por ti" : b.e === "si" ? `Persona (${Math.round(b.s * 100)} %)${b.aj ? ", ajustada" : ""}` : b.e === "no" ? "Quitada: no es persona" : `Dudosa (${Math.round(b.s * 100)} %)`;
+      barra.hidden = false;
+      const x = Math.min(Math.max(0, b.c[0] * f), Math.max(0, r.width - barra.offsetWidth)), y = b.c[3] * f + 6;
+      barra.style.left = x + "px"; barra.style.top = (y + barra.offsetHeight > r.height ? Math.max(0, b.c[1] * f - barra.offsetHeight - 6) : y) + "px";
+    } else barra.hidden = true;
+    const n = (fn) => E.cajas.filter(fn).length;
     kpis($("ent-kpis-f"), [
-      { l: "Personas en el fotograma", v: fmtN(n((b) => b.e === "si")), hl: true },
-      { l: "Vistas por la herramienta", v: fmtN(n((b) => b.o === "m" && b.e === "si" && b.s >= ALTA)) },
-      { l: "Añadidas o aceptadas por ti", v: fmtN(n((b) => b.o === "h" || (b.o === "m" && b.e === "si" && b.s < ALTA))) },
-      { l: "Falsas alarmas quitadas", v: fmtN(n((b) => b.o === "m" && b.e === "no" && b.s >= ALTA)) },
+      { l: "Personas en el fotograma", v: fmtN(n((x) => x.e === "si")), hl: true },
+      { l: "Vistas por la herramienta", v: fmtN(n((x) => x.o === "m" && x.e === "si" && x.s >= ALTA)) },
+      { l: "Añadidas o aceptadas por ti", v: fmtN(n((x) => x.o === "h" || (x.o === "m" && x.e === "si" && x.s < ALTA))) },
+      { l: "Quedan por decidir", v: fmtN(n((x) => x.e === "duda")), s: "cajas amarillas" },
     ]);
     $("ent-tiempo").textContent = `${fmtDur(E.t)} de ${fmtDur(E.duracion)}` + (E.fotos.has(claveT(E.t)) ? " · revisado" : "");
   }
@@ -993,36 +1057,72 @@
     const r = $("ent-cv").getBoundingClientRect();
     return [Math.max(0, Math.min(E.ancho, ((ev.clientX - r.left) / r.width) * E.ancho)), Math.max(0, Math.min(E.alto, ((ev.clientY - r.top) / r.height) * E.alto))];
   }
+  const tolEnt = () => (14 * E.ancho) / $("ent-cv").getBoundingClientRect().width;
   function cambiarEnt(fn) { E.deshacer.push(JSON.stringify(E.cajas)); fn(); pintarEnt(); }
+  function marcarEnt(estado) {
+    const b = E.cajas[E.sel]; if (!b) return;
+    if (b.o === "h") { if (estado !== "si") cambiarEnt(() => { E.cajas.splice(E.sel, 1); E.sel = null; }); return; }
+    if (b.e !== estado) cambiarEnt(() => (b.e = estado));
+  }
+  $("ent-a-si").onclick = () => marcarEnt("si");
+  $("ent-a-no").onclick = () => marcarEnt("no");
+  $("ent-a-borrar").onclick = () => marcarEnt("no");
+  $("ent-a-cerrar").onclick = () => { E.sel = null; pintarEnt(); };
+
   $("ent-cv").addEventListener("pointerdown", (ev) => {
-    if (!E.v || E.jugando) return;
+    if (!E.v || E.jugando || E.saltando) return;
     ev.preventDefault(); $("ent-cv").setPointerCapture(ev.pointerId);
-    E.arr = { a: puntoEnt(ev), b: null };
+    const p = puntoEnt(ev), b = E.cajas[E.sel], tol = tolEnt();
+    if (b) {
+      const esq = [[0, 1], [2, 1], [0, 3], [2, 3]].findIndex(([i, j]) => Math.abs(p[0] - b.c[i]) < tol && Math.abs(p[1] - b.c[j]) < tol);
+      if (esq >= 0) { E.arr = { modo: "ajustar", esq, a: p, antes: JSON.stringify(E.cajas) }; return; }
+      if (p[0] > b.c[0] && p[0] < b.c[2] && p[1] > b.c[1] && p[1] < b.c[3]) { E.arr = { modo: "mover", a: p, c0: [...b.c], antes: JSON.stringify(E.cajas) }; return; }
+    }
+    E.arr = { modo: "dibujar", a: p, b: null };
   });
-  $("ent-cv").addEventListener("pointermove", (ev) => { if (E.arr) { E.arr.b = puntoEnt(ev); pintarEnt(); } });
+  $("ent-cv").addEventListener("pointermove", (ev) => {
+    if (!E.arr) return;
+    const p = puntoEnt(ev), b = E.cajas[E.sel];
+    if (E.arr.modo === "dibujar") E.arr.b = p;
+    else if (E.arr.modo === "ajustar") {
+      const [i, j] = [[0, 1], [2, 1], [0, 3], [2, 3]][E.arr.esq]; b.c[i] = Math.round(p[0]); b.c[j] = Math.round(p[1]); E.arr.movido = true;
+    } else {
+      const dx = p[0] - E.arr.a[0], dy = p[1] - E.arr.a[1], c0 = E.arr.c0;
+      const mx = Math.max(-c0[0], Math.min(E.ancho - c0[2], dx)), my = Math.max(-c0[1], Math.min(E.alto - c0[3], dy));
+      b.c = [c0[0] + mx, c0[1] + my, c0[2] + mx, c0[3] + my].map(Math.round);
+      if (Math.abs(dx) + Math.abs(dy) > tolEnt() / 3) E.arr.movido = true;
+    }
+    pintarEnt();
+  });
   $("ent-cv").addEventListener("pointerup", (ev) => {
     if (!E.arr) return;
-    const a = E.arr.a, b = puntoEnt(ev); E.arr = null;
-    const min = Math.max(6, E.ancho / 120);
-    if (Math.abs(b[0] - a[0]) > min && Math.abs(b[1] - a[1]) > min) {
-      const c = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])].map(Math.round);
-      return cambiarEnt(() => E.cajas.push({ c, s: 1, o: "h", e: "si" }));
+    const arr = E.arr; E.arr = null;
+    if (arr.modo !== "dibujar") {
+      const b = E.cajas[E.sel];
+      if (arr.movido) {
+        b.c = [Math.min(b.c[0], b.c[2]), Math.min(b.c[1], b.c[3]), Math.max(b.c[0], b.c[2]), Math.max(b.c[1], b.c[3])];
+        E.deshacer.push(arr.antes);
+        if (b.o === "m") { b.aj = true; b.e = "si"; }
+      }
+      return pintarEnt();
     }
-    // Toque: la caja más pequeña que contiene el punto.
-    const dentro = E.cajas.filter((x) => a[0] >= x.c[0] && a[0] <= x.c[2] && a[1] >= x.c[1] && a[1] <= x.c[3])
-      .sort((x, y) => (x.c[2] - x.c[0]) * (x.c[3] - x.c[1]) - (y.c[2] - y.c[0]) * (y.c[3] - y.c[1]));
-    if (!dentro.length) return pintarEnt();
-    const x = dentro[0];
-    cambiarEnt(() => {
-      if (x.o === "h") E.cajas.splice(E.cajas.indexOf(x), 1);
-      else x.e = x.e === "si" ? "no" : "si";
-    });
+    const a = arr.a, p = puntoEnt(ev), min = Math.max(6, E.ancho / 120);
+    if (Math.abs(p[0] - a[0]) > min && Math.abs(p[1] - a[1]) > min) {
+      const c = [Math.min(a[0], p[0]), Math.min(a[1], p[1]), Math.max(a[0], p[0]), Math.max(a[1], p[1])].map(Math.round);
+      return cambiarEnt(() => { E.cajas.push({ c, s: 1, o: "h", e: "si" }); E.sel = E.cajas.length - 1; });
+    }
+    // Toque: selecciona la caja más pequeña bajo el dedo (o quita la selección).
+    const dentro = E.cajas.map((x, i) => [x, i]).filter(([x]) => a[0] >= x.c[0] && a[0] <= x.c[2] && a[1] >= x.c[1] && a[1] <= x.c[3])
+      .sort(([x], [y]) => (x.c[2] - x.c[0]) * (x.c[3] - x.c[1]) - (y.c[2] - y.c[0]) * (y.c[3] - y.c[1]));
+    E.sel = dentro.length ? dentro[0][1] : null;
+    pintarEnt();
   });
   $("ent-cv").addEventListener("pointercancel", () => { E.arr = null; pintarEnt(); });
+  window.addEventListener("resize", () => { if (E.v && !$("sec-ent").hidden) pintarEnt(); });
 
-  $("ent-deshacer").onclick = () => { if (E.deshacer.length) { E.cajas = JSON.parse(E.deshacer.pop()); pintarEnt(); } };
-  $("ent-sig").onclick = () => irAEnt(E.t + +$("ent-paso").value);
-  $("ent-ant").onclick = () => irAEnt(E.t - +$("ent-paso").value);
+  $("ent-deshacer").onclick = () => { if (E.deshacer.length) { E.cajas = JSON.parse(E.deshacer.pop()); E.sel = null; pintarEnt(); } };
+  $("ent-sig").onclick = () => { E.saltando = false; return irAEnt(E.t + +$("ent-paso").value); };
+  $("ent-ant").onclick = () => { E.saltando = false; return irAEnt(E.t - +$("ent-paso").value); };
   $("ent-t").onchange = () => irAEnt(+$("ent-t").value);
   $("ent-t").oninput = () => { $("ent-tiempo").textContent = `${fmtDur(+$("ent-t").value)} de ${fmtDur(E.duracion)}`; };
   $("ent-vel").onchange = () => { if (E.v) E.v.defaultPlaybackRate = E.v.playbackRate = +$("ent-vel").value; };
@@ -1051,6 +1151,9 @@
     else if (ev.key === "ArrowLeft") { ev.preventDefault(); $("ent-ant").onclick(); }
     else if (ev.key === "Enter") { ev.preventDefault(); $("ent-guardar").onclick(); }
     else if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "z") { ev.preventDefault(); $("ent-deshacer").onclick(); }
+    else if (E.sel !== null && E.cajas[E.sel] && /^[sS]$/.test(ev.key)) { ev.preventDefault(); marcarEnt("si"); }
+    else if (E.sel !== null && E.cajas[E.sel] && (/^[nN]$/.test(ev.key) || ev.key === "Delete" || ev.key === "Backspace")) { ev.preventDefault(); marcarEnt("no"); }
+    else if (ev.key === "Escape") { E.sel = null; pintarEnt(); }
   });
 
   async function persistirEnt() {
@@ -1062,7 +1165,10 @@
   $("ent-guardar").onclick = async () => {
     if (!E.v || E.jugando) return;
     const t = E.t;
-    E.fotos.set(claveT(t), { t: Math.round(t * 100) / 100, cajas: E.cajas.map((b) => [...b.c, b.s, b.o, b.e]) });
+    const dudas = E.cajas.filter((b) => b.e === "duda").length;
+    if (dudas && !E.avisoDudas) { E.avisoDudas = true; $("ent-msg").textContent = `Quedan ${dudas} ${dudas === 1 ? "caja amarilla" : "cajas amarillas"} sin decidir: no contarán como persona. Pulsa otra vez «Guardar y seguir» para guardar así.`; return; }
+    E.avisoDudas = false; E.sel = null;
+    E.fotos.set(claveT(t), { t: Math.round(t * 100) / 100, cajas: E.cajas.map((b) => [...b.c, b.s, b.o, b.e, b.aj ? 1 : 0]) });
     const ok = await persistirEnt();
     pintarListaEnt(); resumenEnt();
     $("ent-msg-guardado").textContent = ok ? "" : "Guardado solo mientras esta página siga abierta.";
@@ -1132,6 +1238,9 @@
     b.disabled = false; await irAEnt(E.t);
   };
 
+  try { if (localStorage.getItem("ent-guia") === "cerrada") $("ent-guia").open = false; } catch (_) {}
+  $("ent-guia").addEventListener("toggle", () => { try { localStorage.setItem("ent-guia", $("ent-guia").open ? "abierta" : "cerrada"); } catch (_) {} });
+  $("ent-camara").onchange = (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) abrirEntreno(URL.createObjectURL(f), nombreCamara()); };
   $("ent-in").onchange = (e) => { const f = e.target.files[0]; if (f) abrirEntreno(URL.createObjectURL(f), f.name); e.target.value = ""; };
   const dropEnt = $("ent-subir");
   dropEnt.addEventListener("dragover", (e) => { e.preventDefault(); dropEnt.classList.add("over"); });
@@ -1144,7 +1253,7 @@
   $("ent-otro").onclick = () => { pararEnt(); E.buscando++; if (E.v) E.v.remove(); E.v = null; $("ent-trabajo").hidden = true; $("ent-subir").hidden = $("ent-bib-bloque").hidden = $("ent-previos").hidden = false; pintarEntrenos(); };
 
   /* ----------------------------------------------------------- arranque */
-  window.App = { analizar, estadisticas: Motor.estadisticas, EJEMPLO, BIBLIOTECA, S, crearMotor };
+  window.App = { analizar, estadisticas: Motor.estadisticas, EJEMPLO, BIBLIOTECA, S, E, crearMotor };
   pintarPlantillas(); pintarVentas(); pintarSelector(); limpiarForm(); pintarPruebas(); pintarBiblioteca();
   iniciarDatos();
 })();
