@@ -431,7 +431,12 @@
     $("msg-analizar").textContent = `Tiempo estimado: unos ${fmtDur(Math.max(20, (n * 0.45) / nDet + 10))} en este equipo.`;
   }
   $("c-fps").onchange = estimar;
-  $("in-video").onchange = (e) => { const f = e.target.files[0]; if (f) cargarVideo(URL.createObjectURL(f), f.name, null, null); e.target.value = ""; };
+  $("in-video").onchange = (e) => {
+    const fs = [...e.target.files]; e.target.value = "";
+    const v = fs.find((x) => x.type.startsWith("video/") || /\.(mp4|webm|mov|m4v)$/i.test(x.name));
+    if (v) cargarVideo(URL.createObjectURL(v), v.name, null, null);
+    else if (fs.some(esImagen)) abrirFotos(fs);
+  };
   // Vídeo grabado con la cámara del celular: se nombra con la hora y, en el teléfono, se analiza a 4 fotogramas por segundo.
   const nombreCamara = () => { const d = new Date(); return `Cámara del celular ${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
   $("in-camara").onchange = async (e) => {

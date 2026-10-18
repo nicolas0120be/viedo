@@ -179,9 +179,9 @@ figcaption{color:var(--muted);font-size:13px}
     <h2>Arrastra aquí un vídeo o una foto</h2>
     <p class="hint">Vídeo MP4 o WebM: un minuto tarda aproximadamente entre uno y tres minutos. Foto JPG o PNG: cuenta las personas en unos segundos. Todo lo procesa tu navegador.</p>
     <div class="row" style="justify-content:center">
-      <label class="btn primary">Elegir vídeo<input id="in-video" type="file" accept="video/*" hidden></label>
+      <label class="btn primary">Elegir vídeo o fotos<input id="in-video" type="file" accept="video/*,image/*" multiple hidden></label>
       <label class="btn solo-movil">Grabar con la cámara<input id="in-camara" type="file" accept="video/*" capture="environment" hidden></label>
-      <label class="btn">Contar en fotos<input id="in-foto" type="file" accept="image/*" multiple hidden></label>
+      <label class="btn">Solo fotos<input id="in-foto" type="file" accept="image/*" multiple hidden></label>
       <label class="btn solo-movil">Hacer una foto<input id="in-foto-cam" type="file" accept="image/*" capture="environment" hidden></label>
       <button class="btn" id="b-ejemplo">Probar con el vídeo de ejemplo</button>
     </div>
