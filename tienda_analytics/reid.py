@@ -223,3 +223,40 @@ def agrupar(tramos: dict[int, tuple[float, float]], reid: Reidentificador) -> di
 
     orden = sorted(miembros.values(), key=lambda ms: min(tramos[m][0] for m in ms))
     return {m: n for n, ms in enumerate(orden, 1) for m in ms}
+
+
+def _iou(a, b) -> float:
+    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    u = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / u if u > 0 else 0.0
+
+
+def duplicados(registro: list, tramos: dict[int, tuple[float, float]],
+               iou_min: float = 0.3, frac: float = 0.5) -> set[int]:
+    """Trayectos duplicados: una segunda caja sobre la misma persona que pasa más de
+    `frac` de sus fotogramas encima (IoU > `iou_min`) de un trayecto más largo.
+
+    Igual que `Motor.duplicados` del navegador. `registro`: [(fotograma, ids, cajas)];
+    `tramos`: {id: (t0, t1)} de los trayectos válidos. Devuelve los ids a descartar.
+    """
+    def dur(i: int) -> float:
+        return tramos[i][1] - tramos[i][0]
+
+    vistos: dict[int, int] = {}
+    encima: dict[int, dict[int, int]] = {}
+    for _, ids, cajas in registro:
+        pares = [(int(i), c) for i, c in zip(ids, cajas) if int(i) in tramos]
+        for i, c in pares:
+            vistos[i] = vistos.get(i, 0) + 1
+            for o, d in pares:
+                if o != i and dur(o) > dur(i) and _iou(c, d) > iou_min:
+                    encima.setdefault(i, {})[o] = encima.get(i, {}).get(o, 0) + 1
+    fuera: set[int] = set()
+    for i in sorted(tramos, key=dur):
+        n = max((k for o, k in encima.get(i, {}).items() if o not in fuera), default=0)
+        if vistos.get(i) and n / vistos[i] > frac:
+            fuera.add(i)
+    return fuera
+

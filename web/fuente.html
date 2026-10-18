@@ -128,8 +128,6 @@ td.wrap{white-space:normal;min-width:220px}
 .guia code{font-family:var(--font-data);font-size:12.5px;background:var(--sunk);padding:1px 5px;border-radius:4px}
 .sw-t{font-weight:600;border-bottom:3px solid var(--c)}
 .ent-visor{position:relative;min-width:0}
-.foto-visor{min-width:0;border-radius:8px;overflow:hidden;background:var(--bg)}
-.foto-visor canvas{display:block;width:100%;height:auto;touch-action:manipulation;cursor:pointer}
 .foto-tiras{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
 .foto-tiras button{all:unset;cursor:pointer;flex:0 0 auto;display:flex;flex-direction:column;gap:4px;width:110px;font-size:12px;color:var(--muted)}
 .foto-tiras img{width:110px;height:74px;object-fit:cover;border-radius:6px;border:2px solid transparent}
@@ -171,7 +169,7 @@ figcaption{color:var(--muted);font-size:13px}
 
 <!-- ============================================================ ANALIZAR -->
 <section id="sec-ana" class="panel">
-  <div class="stack"><h1>Analizar vídeo o foto</h1><span class="meta">Versión 11 · fotos y vídeos</span>
+  <div class="stack"><h1>Analizar vídeo o foto</h1><span class="meta">Versión 13 · fotos y vídeos</span>
   <p class="hint">Sube la grabación de una cámara de la tienda, o una foto si solo quieres contar cuántas personas hay en un momento. La herramienta detecta a cada persona, la sigue por la imagen, une los tramos de la misma persona para no contarla dos veces y calcula las estadísticas.</p></div>
 
   <div id="paso-subir" class="drop">
@@ -194,13 +192,31 @@ figcaption{color:var(--muted);font-size:13px}
         <div class="row" style="gap:8px"><label class="btn small">Añadir fotos<input id="fo-mas" type="file" accept="image/*" multiple hidden></label><label class="btn small solo-movil">Hacer otra foto<input id="fo-mas-cam" type="file" accept="image/*" capture="environment" hidden></label><button class="btn small" id="fo-volver">Volver</button></div>
       </div>
       <div id="fo-msg" class="note" hidden></div>
-      <div class="foto-visor"><canvas id="fo-lienzo"></canvas></div>
+      <div class="ent-visor">
+        <canvas id="fo-cv" class="ent-cv"></canvas>
+        <div class="ent-acciones" id="fo-acciones" hidden>
+          <span class="meta" id="fo-a-estado"></span>
+          <button class="btn small" id="fo-a-si">Es persona</button>
+          <button class="btn small" id="fo-a-no">No es persona</button>
+          <button class="btn small" id="fo-a-borrar">Borrar</button>
+          <button class="btn small" id="fo-a-cerrar" aria-label="Cerrar">✕</button>
+        </div>
+      </div>
+      <div class="row" style="gap:8px">
+        <button class="btn small" id="fo-ant">‹ Foto anterior</button><button class="btn small" id="fo-sig">Foto siguiente ›</button><button class="btn small" id="fo-deshacer">Deshacer</button>
+      </div>
+      <div class="leyenda">
+        <span><i class="sw" style="background:#17a2c4"></i>Vista por la herramienta</span>
+        <span><i class="sw" style="background:#e0b000"></i>Dudosa (no cuenta)</span>
+        <span><i class="sw" style="background:#2fbf5f"></i>Añadida por ti</span>
+        <span><i class="sw" style="background:#d9534f"></i>Quitada</span>
+      </div>
       <div class="kpis k3">
         <div class="kpi hl"><span class="l">Personas en esta foto</span><span class="v" id="fo-n">–</span><span class="s" id="fo-n-s">&nbsp;</span></div>
-        <div class="kpi"><span class="l">Dudosas</span><span class="v" id="fo-d">–</span><span class="s">en amarillo, no se cuentan</span></div>
+        <div class="kpi"><span class="l">Dudosas</span><span class="v" id="fo-d">–</span><span class="s">en amarillo, no cuentan hasta que decidas</span></div>
         <div class="kpi"><span class="l">Total de las fotos</span><span class="v" id="fo-total">–</span><span class="s" id="fo-total-s">&nbsp;</span></div>
       </div>
-      <p class="hint">Verde: se cuenta. Amarillo: la herramienta duda y no la cuenta. Rojo: la has descartado. Toca una caja para cambiarla entre «se cuenta» y «no se cuenta». Si falta alguien, mantén pulsado o haz doble clic sobre esa persona para sumarla a mano.</p>
+      <p class="hint">Se corrige igual que en Entrenamiento: toca una caja y elige «Es persona» o «No es persona»; arrastra sus esquinas o su interior para ajustarla; si falta alguien, arrastra sobre la imagen un rectángulo de la cabeza a los pies. Teclado: ← → cambiar de foto, S / N, Ctrl+Z deshacer, Esc soltar.</p>
       <div id="fo-tiras" class="foto-tiras"></div>
       <div class="stack" style="gap:6px;border-top:1px solid var(--line);padding-top:12px">
         <h3>Entrenamiento</h3>
@@ -386,7 +402,7 @@ figcaption{color:var(--muted);font-size:13px}
   <details class="guia" id="ent-guia" open>
     <summary>Cómo usar Entrenamiento</summary>
     <ol>
-      <li><b>Elige un vídeo.</b> Uno de tu equipo o uno de los vídeos de Pruebas. Lo mejor son grabaciones de tus propias cámaras: el detector aprende de lo que ve.</li>
+      <li><b>Elige un vídeo o fotos.</b> Un vídeo de tu equipo, uno de los vídeos de Pruebas, o fotos con «Revisar fotos» (se abren en Analizar con este mismo editor y cada foto se guarda sola al corregirla). Lo mejor son grabaciones de tus propias cámaras: el detector aprende de lo que ve.</li>
       <li><b>Ve al momento que quieras revisar.</b> Usa la barra, «Reproducir» y «Pausar», o «Anterior» y «Siguiente» (saltan el tiempo que marque «Paso»). «Siguiente con dudas» avanza solo hasta el próximo fotograma donde la herramienta no está segura: ahí es donde más aprende.</li>
       <li><b>Mira las cajas.</b> <span class="sw-t" style="--c:#17a2c4">Azul</span>: persona que la herramienta ve. <span class="sw-t" style="--c:#e0b000">Amarillo discontinuo</span>: duda, no cuenta hasta que decidas. <span class="sw-t" style="--c:#2fbf5f">Verde</span>: añadida por ti. <span class="sw-t" style="--c:#d9534f">Roja tachada</span>: quitada, no es persona.</li>
       <li><b>Corrige el fotograma.</b>
@@ -403,11 +419,12 @@ figcaption{color:var(--muted);font-size:13px}
   </details>
 
   <div id="ent-subir" class="drop">
-    <h2>Elige un vídeo para revisar</h2>
+    <h2>Elige un vídeo o fotos para revisar</h2>
     <p class="hint">El vídeo no sale de tu equipo. Solo se guardan las cajas que marques.</p>
     <div class="row" style="justify-content:center">
       <label class="btn primary">Elegir un vídeo de tu equipo<input id="ent-in" type="file" accept="video/*" hidden></label>
       <label class="btn solo-movil">Grabar con la cámara<input id="ent-camara" type="file" accept="video/*" capture="environment" hidden></label>
+      <label class="btn">Revisar fotos<input id="ent-fotos" type="file" accept="image/*" multiple hidden></label>
     </div>
   </div>
   <div class="stack" id="ent-bib-bloque"><h3>O uno de los vídeos de Pruebas</h3><div class="biblio ent-biblio" id="ent-biblio"></div></div>

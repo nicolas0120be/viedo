@@ -1,6 +1,6 @@
 import numpy as np
 
-from tienda_analytics.reid import Firma, Reidentificador, agrupar
+from tienda_analytics.reid import Firma, Reidentificador, agrupar, duplicados
 
 
 def _firma(vec, t0, t1, p0, p1, color=None):
@@ -48,3 +48,21 @@ def test_reentrada_solo_con_apariencia_casi_identica():
     p = agrupar(lejos, r)
     assert p[1] == p[2]
     assert p[3] != p[1]
+
+
+def test_descarta_caja_duplicada_encima_de_otra_persona():
+    persona = np.array([100, 100, 200, 400.0])
+    otra = np.array([400, 100, 500, 400.0])
+    # El trayecto 3 es una segunda caja casi encima del 1 durante toda su vida; el 2 es otra persona.
+    registro = [(k, [1, 2] + ([3] if 5 <= k < 15 else []),
+                 [persona, otra] + ([persona + 8] if 5 <= k < 15 else [])) for k in range(30)]
+    tramos = {1: (0.0, 3.0), 2: (0.0, 3.0), 3: (0.5, 1.5)}
+    assert duplicados(registro, tramos) == {3}
+
+
+def test_no_descarta_personas_que_se_cruzan_un_momento():
+    a = np.array([100, 100, 200, 400.0])
+    registro = [(k, [1, 2], [a, a + np.array([300 - 25 * k, 0, 300 - 25 * k, 0])]) for k in range(20)]
+    tramos = {1: (0.0, 2.0), 2: (0.0, 1.9)}
+    assert duplicados(registro, tramos) == set()
+

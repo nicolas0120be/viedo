@@ -15,7 +15,7 @@ El vídeo se procesa en local y solo se guardan eventos anónimos (posición, zo
 3. **Zonas y líneas:** cada persona se ubica por el punto donde pisa dentro de las zonas de `config/*.json`. Se registran entradas, salidas, tiempo en zona y cruces de líneas virtuales.
 4. **Eventos:** `eventos.sqlite` con `visitas` (un trayecto por fila, con su `persona_id`), `estancias` y `cruces`.
 5. **Métricas:** **conteo total** = trayectos contados; **clientes únicos** = personas distintas. La conversión usa clientes únicos.
-6. **Front:** Streamlit para subir vídeos y tickets y ver embudo, zonas, ventas del periodo, personas, vídeo anotado y mapa de calor.
+6. **Front:** una sola página web (`web/`) que analiza vídeos y fotos en el propio navegador y muestra resultados, ventas, pruebas y entrenamiento. La parte en Python no tiene pantalla propia: procesa vídeos por línea de comandos (por lotes o desde una cámara RTSP) y reentrena el detector.
 
 ## Uso
 
@@ -25,10 +25,7 @@ pip install -r requirements.txt
 ./scripts/descargar_videos.sh     # vídeos de prueba en data/
 ./scripts/descargar_modelos.sh    # modelo de re-identificación en modelos/
 
-# Front: subir vídeos y tickets, ver resultados
-streamlit run tienda_analytics/app.py
-
-# O por línea de comandos
+# Procesar un vídeo por línea de comandos
 python -m tienda_analytics.pipeline --video data/store-aisle-detection.mp4 \
     --config config/zonas_pasillo.json --salida salida --video-anotado
 python -m tienda_analytics.metricas --eventos salida/eventos.sqlite \
@@ -52,7 +49,7 @@ Servida así no guarda historial (eso lo pone el visor de Artifacts de Claude); 
 
 ## Entrenar el detector con ayuda humana
 
-En la pestaña **Entrenamiento** del front se abre un vídeo y se revisa fotograma a fotograma: la herramienta propone las personas que ve y el revisor añade las que faltan (arrastrando sobre la imagen), quita las falsas alarmas y acepta las dudosas (tocando la caja). Las cajas se guardan por vídeo y se descargan como un `.zip` en formato YOLO (`images/`, `labels/`, `data.yaml`). La pestaña muestra también qué porcentaje de las personas vio la herramienta sin ayuda.
+En la pestaña **Entrenamiento** del front se abre un vídeo y se revisa fotograma a fotograma: la herramienta propone las personas que ve y el revisor añade las que faltan (arrastrando sobre la imagen), quita las falsas alarmas y acepta las dudosas (tocando la caja). Las cajas se guardan por vídeo y se descargan como un `.zip` en formato YOLO (`images/`, `labels/`, `data.yaml`). La pestaña muestra también qué porcentaje de las personas vio la herramienta sin ayuda. Las fotos se revisan igual (botón «Revisar fotos» o «Elegir fotos» en Analizar) y se descargan en otro `.zip` del mismo formato.
 
 Para reentrenar con uno o varios de esos `.zip`:
 
@@ -62,13 +59,15 @@ python scripts/entrenar_detector.py entrenamiento-*.zip --epocas 30
 
 El script ajusta YOLO11n, lo exporta a ONNX y deja `yolo11n.onnx.b64.txt` listo para copiar a `web/dist` y volver a publicar el front. Antes de quedarse con el modelo nuevo, conviene repetir los vídeos de la sección Pruebas y comparar en el registro.
 
-## Desplegar en un servidor
+## Front
 
-`Dockerfile` empaqueta el front de Streamlit con el análisis en Python. `render.yaml` lo despliega en Render con un disco para los análisis (`DATOS_APP`). En Google Cloud Run las subidas están limitadas a 32 MB, poco para vídeo.
+El front es la página `web/fuente.html` con `web/app.js` y `web/motor.js` (el mismo análisis que `tienda_analytics`, portado a JavaScript). `web/construir.py` los junta en una sola página y `web/preparar.sh` deja en `web/dist` la página, los modelos y los vídeos de prueba. Todo se procesa en el navegador; no hace falta servidor.
+
+Las fotos se cuentan en «Analizar» y se corrigen con el mismo editor de cajas que los fotogramas de vídeo en «Entrenamiento»; cada foto revisada se guarda como dato de entrenamiento.
 
 ## Validación del conteo único
 
-Con los parámetros por defecto, frente a un conteo manual de cada vídeo:
+Con los parámetros por defecto, frente a un conteo manual de cada vídeo (versión en Python). Desde octubre de 2026 Python descarta también las cajas duplicadas, igual que el navegador; en estos vídeos el seguidor de Python no genera ninguna, así que las cifras no cambian. La diferencia con el navegador en el pasillo (8 frente a 6 clientes únicos) viene del seguidor: Python usa el de Ultralytics y procesa 1 de cada 2 fotogramas.
 
 | Vídeo | Conteo total | Clientes únicos | Personas reales | Fusiones erróneas |
 | --- | --- | --- | --- | --- |

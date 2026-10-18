@@ -1,9 +1,0 @@
-.git
-.venv
-salida
-datos_app
-data/*.mp4
-modelos
-*.pt
-web/dist
-__pycache__

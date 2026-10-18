@@ -894,7 +894,7 @@
   /* ------------------------------------------------------ entrenamiento */
   // Revisión humana fotograma a fotograma. Cada caja: {c: [x1, y1, x2, y2], s: confianza, o: "m" modelo | "h" humano, e: "si" | "no" | "duda"}.
   const ALTA = UMBRAL_PERSONA;
-  const E = { sel: null, saltando: false, avisoDudas: false, v: null, url: null, id: null, nombre: "", ancho: 0, alto: 0, duracion: 0, t: 0, cajas: [], deshacer: [], fotos: new Map(), arr: null, buscando: 0, jugando: false };
+  const E = { fondo: () => E.v, sel: null, saltando: false, avisoDudas: false, v: null, url: null, id: null, nombre: "", ancho: 0, alto: 0, duracion: 0, t: 0, cajas: [], deshacer: [], fotos: new Map(), arr: null, buscando: 0, jugando: false };
   const claveT = (t) => (Math.round(t * 100) / 100).toFixed(2);
   const slug = (s) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "video";
 
@@ -1021,125 +1021,154 @@
     else await irAEnt(E.t);
   };
 
+  /* ------------------------------------------------ editor de cajas (común) */
+  // Un solo editor para corregir cajas: fotogramas de vídeo en Entrenamiento y fotos en Analizar.
+  // estado() devuelve {cajas, sel, arr, deshacer, ancho, alto, fondo()}; pre es el prefijo de los ids (lienzo pre+"cv", barra pre+"acciones").
   const COL_ENT = { si: "#17a2c4", duda: "#e0b000", no: "#d9534f", h: "#2fbf5f" };
   const colorCaja = (b) => (b.o === "h" ? COL_ENT.h : COL_ENT[b.e]);
-  function pintarEnt() {
-    const cv = $("ent-cv"), ctx = cv.getContext("2d");
-    if (E.v) ctx.drawImage(E.v, 0, 0, E.ancho, E.alto);
-    const barra = $("ent-acciones");
-    if (E.jugando || E.saltando) { barra.hidden = true; return; }
-    const lw = Math.max(2, E.ancho / 320);
-    E.cajas.forEach((b, i) => {
-      const [x1, y1, x2, y2] = b.c, col = colorCaja(b), sel = i === E.sel;
-      ctx.lineWidth = (b.o === "h" ? lw * 1.4 : lw) * (sel ? 1.6 : 1); ctx.strokeStyle = col;
-      ctx.setLineDash(b.e === "si" ? [] : [lw * 3, lw * 2]);
-      ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
-      if (b.e === "no") { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.moveTo(x2, y1); ctx.lineTo(x1, y2); ctx.stroke(); }
-      ctx.setLineDash([]);
-      if (b.o === "m" && b.e !== "no" && !sel) {
-        ctx.font = `600 ${Math.round(lw * 6)}px system-ui`; ctx.fillStyle = col;
-        ctx.fillText(Math.round(b.s * 100) + "%", x1 + lw, Math.max(lw * 7, y1 - lw * 2));
+  function crearEditor(pre, { estado, bloqueado = () => false, alCambiar = () => {}, alPintar = () => {} }) {
+    const cv = $(pre + "cv"), barra = $(pre + "acciones"), q = (n) => $(pre + "a-" + n);
+    function pintar() {
+      const E = estado(); if (!E) return;
+      const ctx = cv.getContext("2d"), fondo = E.fondo();
+      if (fondo) ctx.drawImage(fondo, 0, 0, E.ancho, E.alto);
+      if (bloqueado()) { barra.hidden = true; alPintar(); return; }
+      const lw = Math.max(2, E.ancho / 320);
+      E.cajas.forEach((b, i) => {
+        const [x1, y1, x2, y2] = b.c, col = colorCaja(b), sel = i === E.sel;
+        ctx.lineWidth = (b.o === "h" ? lw * 1.4 : lw) * (sel ? 1.6 : 1); ctx.strokeStyle = col;
+        ctx.setLineDash(b.e === "si" ? [] : [lw * 3, lw * 2]);
+        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+        if (b.e === "no") { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.moveTo(x2, y1); ctx.lineTo(x1, y2); ctx.stroke(); }
+        ctx.setLineDash([]);
+        if (b.o === "m" && b.e !== "no" && !sel) {
+          ctx.font = `600 ${Math.round(lw * 6)}px system-ui`; ctx.fillStyle = col;
+          ctx.fillText(Math.round(b.s * 100) + "%", x1 + lw, Math.max(lw * 7, y1 - lw * 2));
+        }
+        if (sel) {
+          ctx.fillStyle = "#ffffff"; ctx.strokeStyle = col; ctx.lineWidth = lw;
+          const h = lw * 4;
+          for (const [px, py] of [[x1, y1], [x2, y1], [x1, y2], [x2, y2]]) { ctx.fillRect(px - h / 2, py - h / 2, h, h); ctx.strokeRect(px - h / 2, py - h / 2, h, h); }
+        }
+      });
+      if (E.arr && E.arr.modo === "dibujar" && E.arr.b) {
+        const [a, b] = [E.arr.a, E.arr.b]; ctx.strokeStyle = COL_ENT.h; ctx.lineWidth = lw; ctx.setLineDash([lw * 2, lw * 2]);
+        ctx.strokeRect(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])); ctx.setLineDash([]);
       }
-      if (sel) {
-        ctx.fillStyle = "#ffffff"; ctx.strokeStyle = col; ctx.lineWidth = lw;
-        const h = lw * 4;
-        for (const [px, py] of [[x1, y1], [x2, y1], [x1, y2], [x2, y2]]) { ctx.fillRect(px - h / 2, py - h / 2, h, h); ctx.strokeRect(px - h / 2, py - h / 2, h, h); }
-      }
-    });
-    if (E.arr && E.arr.modo === "dibujar" && E.arr.b) {
-      const [a, b] = [E.arr.a, E.arr.b]; ctx.strokeStyle = COL_ENT.h; ctx.lineWidth = lw; ctx.setLineDash([lw * 2, lw * 2]);
-      ctx.strokeRect(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])); ctx.setLineDash([]);
-    }
-    // Barra de acciones junto a la caja seleccionada.
-    const b = E.cajas[E.sel];
-    if (b && !E.arr) {
-      const r = cv.getBoundingClientRect(), f = r.width / E.ancho;
-      $("ent-a-si").hidden = b.o === "h" || b.e === "si";
-      $("ent-a-no").hidden = b.o === "h" || b.e === "no";
-      $("ent-a-borrar").hidden = b.o !== "h";
-      $("ent-a-estado").textContent = b.o === "h" ? "Añadida por ti" : b.e === "si" ? `Persona (${Math.round(b.s * 100)} %)${b.aj ? ", ajustada" : ""}` : b.e === "no" ? "Quitada: no es persona" : `Dudosa (${Math.round(b.s * 100)} %)`;
-      barra.hidden = false;
-      const x = Math.min(Math.max(0, b.c[0] * f), Math.max(0, r.width - barra.offsetWidth)), y = b.c[3] * f + 6;
-      barra.style.left = x + "px"; barra.style.top = (y + barra.offsetHeight > r.height ? Math.max(0, b.c[1] * f - barra.offsetHeight - 6) : y) + "px";
-    } else barra.hidden = true;
-    const n = (fn) => E.cajas.filter(fn).length;
-    kpis($("ent-kpis-f"), [
-      { l: "Personas en el fotograma", v: fmtN(n((x) => x.e === "si")), hl: true },
-      { l: "Vistas por la herramienta", v: fmtN(n((x) => x.o === "m" && x.e === "si" && x.s >= ALTA)) },
-      { l: "Añadidas o aceptadas por ti", v: fmtN(n((x) => x.o === "h" || (x.o === "m" && x.e === "si" && x.s < ALTA))) },
-      { l: "Quedan por decidir", v: fmtN(n((x) => x.e === "duda")), s: "cajas amarillas" },
-    ]);
-    $("ent-tiempo").textContent = `${fmtDur(E.t)} de ${fmtDur(E.duracion)}` + (E.fotos.has(claveT(E.t)) ? " · revisado" : "");
-  }
-
-  function puntoEnt(ev) {
-    const r = $("ent-cv").getBoundingClientRect();
-    return [Math.max(0, Math.min(E.ancho, ((ev.clientX - r.left) / r.width) * E.ancho)), Math.max(0, Math.min(E.alto, ((ev.clientY - r.top) / r.height) * E.alto))];
-  }
-  const tolEnt = () => (14 * E.ancho) / $("ent-cv").getBoundingClientRect().width;
-  function cambiarEnt(fn) { E.deshacer.push(JSON.stringify(E.cajas)); fn(); pintarEnt(); }
-  function marcarEnt(estado) {
-    const b = E.cajas[E.sel]; if (!b) return;
-    if (b.o === "h") { if (estado !== "si") cambiarEnt(() => { E.cajas.splice(E.sel, 1); E.sel = null; }); return; }
-    if (b.e !== estado) cambiarEnt(() => (b.e = estado));
-  }
-  $("ent-a-si").onclick = () => marcarEnt("si");
-  $("ent-a-no").onclick = () => marcarEnt("no");
-  $("ent-a-borrar").onclick = () => marcarEnt("no");
-  $("ent-a-cerrar").onclick = () => { E.sel = null; pintarEnt(); };
-
-  $("ent-cv").addEventListener("pointerdown", (ev) => {
-    if (!E.v || E.jugando || E.saltando) return;
-    ev.preventDefault(); $("ent-cv").setPointerCapture(ev.pointerId);
-    const p = puntoEnt(ev), b = E.cajas[E.sel], tol = tolEnt();
-    if (b) {
-      const esq = [[0, 1], [2, 1], [0, 3], [2, 3]].findIndex(([i, j]) => Math.abs(p[0] - b.c[i]) < tol && Math.abs(p[1] - b.c[j]) < tol);
-      if (esq >= 0) { E.arr = { modo: "ajustar", esq, a: p, antes: JSON.stringify(E.cajas) }; return; }
-      if (p[0] > b.c[0] && p[0] < b.c[2] && p[1] > b.c[1] && p[1] < b.c[3]) { E.arr = { modo: "mover", a: p, c0: [...b.c], antes: JSON.stringify(E.cajas) }; return; }
-    }
-    E.arr = { modo: "dibujar", a: p, b: null };
-  });
-  $("ent-cv").addEventListener("pointermove", (ev) => {
-    if (!E.arr) return;
-    const p = puntoEnt(ev), b = E.cajas[E.sel];
-    if (E.arr.modo === "dibujar") E.arr.b = p;
-    else if (E.arr.modo === "ajustar") {
-      const [i, j] = [[0, 1], [2, 1], [0, 3], [2, 3]][E.arr.esq]; b.c[i] = Math.round(p[0]); b.c[j] = Math.round(p[1]); E.arr.movido = true;
-    } else {
-      const dx = p[0] - E.arr.a[0], dy = p[1] - E.arr.a[1], c0 = E.arr.c0;
-      const mx = Math.max(-c0[0], Math.min(E.ancho - c0[2], dx)), my = Math.max(-c0[1], Math.min(E.alto - c0[3], dy));
-      b.c = [c0[0] + mx, c0[1] + my, c0[2] + mx, c0[3] + my].map(Math.round);
-      if (Math.abs(dx) + Math.abs(dy) > tolEnt() / 3) E.arr.movido = true;
-    }
-    pintarEnt();
-  });
-  $("ent-cv").addEventListener("pointerup", (ev) => {
-    if (!E.arr) return;
-    const arr = E.arr; E.arr = null;
-    if (arr.modo !== "dibujar") {
+      // Barra de acciones junto a la caja seleccionada.
       const b = E.cajas[E.sel];
-      if (arr.movido) {
-        b.c = [Math.min(b.c[0], b.c[2]), Math.min(b.c[1], b.c[3]), Math.max(b.c[0], b.c[2]), Math.max(b.c[1], b.c[3])];
-        E.deshacer.push(arr.antes);
-        if (b.o === "m") { b.aj = true; b.e = "si"; }
-      }
-      return pintarEnt();
+      if (b && !E.arr) {
+        const r = cv.getBoundingClientRect(), f = r.width / E.ancho;
+        q("si").hidden = b.o === "h" || b.e === "si";
+        q("no").hidden = b.o === "h" || b.e === "no";
+        q("borrar").hidden = b.o !== "h";
+        q("estado").textContent = b.o === "h" ? "Añadida por ti" : b.e === "si" ? `Persona (${Math.round(b.s * 100)} %)${b.aj ? ", ajustada" : ""}` : b.e === "no" ? "Quitada: no es persona" : `Dudosa (${Math.round(b.s * 100)} %)`;
+        barra.hidden = false;
+        const x = Math.min(Math.max(0, b.c[0] * f), Math.max(0, r.width - barra.offsetWidth)), y = b.c[3] * f + 6;
+        barra.style.left = x + "px"; barra.style.top = (y + barra.offsetHeight > r.height ? Math.max(0, b.c[1] * f - barra.offsetHeight - 6) : y) + "px";
+      } else barra.hidden = true;
+      alPintar();
     }
-    const a = arr.a, p = puntoEnt(ev), min = Math.max(6, E.ancho / 120);
-    if (Math.abs(p[0] - a[0]) > min && Math.abs(p[1] - a[1]) > min) {
-      const c = [Math.min(a[0], p[0]), Math.min(a[1], p[1]), Math.max(a[0], p[0]), Math.max(a[1], p[1])].map(Math.round);
-      return cambiarEnt(() => { E.cajas.push({ c, s: 1, o: "h", e: "si" }); E.sel = E.cajas.length - 1; });
+    function punto(ev) {
+      const E = estado(), r = cv.getBoundingClientRect();
+      return [Math.max(0, Math.min(E.ancho, ((ev.clientX - r.left) / r.width) * E.ancho)), Math.max(0, Math.min(E.alto, ((ev.clientY - r.top) / r.height) * E.alto))];
     }
-    // Toque: selecciona la caja más pequeña bajo el dedo (o quita la selección).
-    const dentro = E.cajas.map((x, i) => [x, i]).filter(([x]) => a[0] >= x.c[0] && a[0] <= x.c[2] && a[1] >= x.c[1] && a[1] <= x.c[3])
-      .sort(([x], [y]) => (x.c[2] - x.c[0]) * (x.c[3] - x.c[1]) - (y.c[2] - y.c[0]) * (y.c[3] - y.c[1]));
-    E.sel = dentro.length ? dentro[0][1] : null;
-    pintarEnt();
-  });
-  $("ent-cv").addEventListener("pointercancel", () => { E.arr = null; pintarEnt(); });
-  window.addEventListener("resize", () => { if (E.v && !$("sec-ent").hidden) pintarEnt(); });
+    const tol = () => (14 * estado().ancho) / cv.getBoundingClientRect().width;
+    function cambiar(fn) { const E = estado(); E.deshacer.push(JSON.stringify(E.cajas)); fn(E); pintar(); alCambiar(); }
+    function marcar(valor) {
+      const E = estado(), b = E && E.cajas[E.sel]; if (!b) return;
+      if (b.o === "h") { if (valor !== "si") cambiar(() => { E.cajas.splice(E.sel, 1); E.sel = null; }); return; }
+      if (b.e !== valor) cambiar(() => (b.e = valor));
+    }
+    function deshacer() { const E = estado(); if (E && E.deshacer.length) { E.cajas = JSON.parse(E.deshacer.pop()); E.sel = null; pintar(); alCambiar(); } }
+    function soltar() { const E = estado(); if (E) { E.sel = null; pintar(); } }
+    q("si").onclick = () => marcar("si");
+    q("no").onclick = () => marcar("no");
+    q("borrar").onclick = () => marcar("no");
+    q("cerrar").onclick = soltar;
 
-  $("ent-deshacer").onclick = () => { if (E.deshacer.length) { E.cajas = JSON.parse(E.deshacer.pop()); E.sel = null; pintarEnt(); } };
+    cv.addEventListener("pointerdown", (ev) => {
+      const E = estado();
+      if (!E || bloqueado()) return;
+      ev.preventDefault(); cv.setPointerCapture(ev.pointerId);
+      const p = punto(ev), b = E.cajas[E.sel], t = tol();
+      if (b) {
+        const esq = [[0, 1], [2, 1], [0, 3], [2, 3]].findIndex(([i, j]) => Math.abs(p[0] - b.c[i]) < t && Math.abs(p[1] - b.c[j]) < t);
+        if (esq >= 0) { E.arr = { modo: "ajustar", esq, a: p, antes: JSON.stringify(E.cajas) }; return; }
+        if (p[0] > b.c[0] && p[0] < b.c[2] && p[1] > b.c[1] && p[1] < b.c[3]) { E.arr = { modo: "mover", a: p, c0: [...b.c], antes: JSON.stringify(E.cajas) }; return; }
+      }
+      E.arr = { modo: "dibujar", a: p, b: null };
+    });
+    cv.addEventListener("pointermove", (ev) => {
+      const E = estado(); if (!E || !E.arr) return;
+      const p = punto(ev), b = E.cajas[E.sel];
+      if (E.arr.modo === "dibujar") E.arr.b = p;
+      else if (E.arr.modo === "ajustar") {
+        const [i, j] = [[0, 1], [2, 1], [0, 3], [2, 3]][E.arr.esq]; b.c[i] = Math.round(p[0]); b.c[j] = Math.round(p[1]); E.arr.movido = true;
+      } else {
+        const dx = p[0] - E.arr.a[0], dy = p[1] - E.arr.a[1], c0 = E.arr.c0;
+        const mx = Math.max(-c0[0], Math.min(E.ancho - c0[2], dx)), my = Math.max(-c0[1], Math.min(E.alto - c0[3], dy));
+        b.c = [c0[0] + mx, c0[1] + my, c0[2] + mx, c0[3] + my].map(Math.round);
+        if (Math.abs(dx) + Math.abs(dy) > tol() / 3) E.arr.movido = true;
+      }
+      pintar();
+    });
+    cv.addEventListener("pointerup", (ev) => {
+      const E = estado(); if (!E || !E.arr) return;
+      const arr = E.arr; E.arr = null;
+      if (arr.modo !== "dibujar") {
+        const b = E.cajas[E.sel];
+        if (arr.movido) {
+          b.c = [Math.min(b.c[0], b.c[2]), Math.min(b.c[1], b.c[3]), Math.max(b.c[0], b.c[2]), Math.max(b.c[1], b.c[3])];
+          E.deshacer.push(arr.antes);
+          if (b.o === "m") { b.aj = true; b.e = "si"; }
+          pintar(); return alCambiar();
+        }
+        return pintar();
+      }
+      const a = arr.a, p = punto(ev), min = Math.max(6, E.ancho / 120);
+      if (Math.abs(p[0] - a[0]) > min && Math.abs(p[1] - a[1]) > min) {
+        const c = [Math.min(a[0], p[0]), Math.min(a[1], p[1]), Math.max(a[0], p[0]), Math.max(a[1], p[1])].map(Math.round);
+        return cambiar(() => { E.cajas.push({ c, s: 1, o: "h", e: "si" }); E.sel = E.cajas.length - 1; });
+      }
+      // Toque: selecciona la caja más pequeña bajo el dedo (o quita la selección).
+      const dentro = E.cajas.map((x, i) => [x, i]).filter(([x]) => a[0] >= x.c[0] && a[0] <= x.c[2] && a[1] >= x.c[1] && a[1] <= x.c[3])
+        .sort(([x], [y]) => (x.c[2] - x.c[0]) * (x.c[3] - x.c[1]) - (y.c[2] - y.c[0]) * (y.c[3] - y.c[1]));
+      E.sel = dentro.length ? dentro[0][1] : null;
+      pintar();
+    });
+    cv.addEventListener("pointercancel", () => { const E = estado(); if (E) { E.arr = null; pintar(); } });
+    // Teclas comunes: S / N es o no es persona, Supr quitar, Ctrl+Z deshacer, Esc soltar. Devuelve true si la ha usado.
+    function teclas(ev) {
+      const E = estado(); if (!E) return false;
+      const conSel = E.sel !== null && E.cajas[E.sel];
+      if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "z") deshacer();
+      else if (conSel && /^[sS]$/.test(ev.key)) marcar("si");
+      else if (conSel && (/^[nN]$/.test(ev.key) || ev.key === "Delete" || ev.key === "Backspace")) marcar("no");
+      else if (ev.key === "Escape") soltar();
+      else return false;
+      ev.preventDefault(); return true;
+    }
+    return { pintar, marcar, deshacer, teclas, cv };
+  }
+
+  const edEnt = crearEditor("ent-", {
+    estado: () => E,
+    bloqueado: () => !E.v || E.jugando || E.saltando,
+    alPintar: () => {
+      const n = (fn) => E.cajas.filter(fn).length;
+      kpis($("ent-kpis-f"), [
+        { l: "Personas en el fotograma", v: fmtN(n((x) => x.e === "si")), hl: true },
+        { l: "Vistas por la herramienta", v: fmtN(n((x) => x.o === "m" && x.e === "si" && x.s >= ALTA)) },
+        { l: "Añadidas o aceptadas por ti", v: fmtN(n((x) => x.o === "h" || (x.o === "m" && x.e === "si" && x.s < ALTA))) },
+        { l: "Quedan por decidir", v: fmtN(n((x) => x.e === "duda")), s: "cajas amarillas" },
+      ]);
+      $("ent-tiempo").textContent = `${fmtDur(E.t)} de ${fmtDur(E.duracion)}` + (E.fotos.has(claveT(E.t)) ? " · revisado" : "");
+    },
+  });
+  const pintarEnt = edEnt.pintar;
+  window.addEventListener("resize", () => { if (E.v && !$("sec-ent").hidden) pintarEnt(); });
+  $("ent-deshacer").onclick = edEnt.deshacer;
   $("ent-sig").onclick = () => { E.saltando = false; return irAEnt(E.t + +$("ent-paso").value); };
   $("ent-ant").onclick = () => { E.saltando = false; return irAEnt(E.t - +$("ent-paso").value); };
   $("ent-t").onchange = () => irAEnt(+$("ent-t").value);
@@ -1169,10 +1198,7 @@
     if (ev.key === "ArrowRight") { ev.preventDefault(); $("ent-sig").onclick(); }
     else if (ev.key === "ArrowLeft") { ev.preventDefault(); $("ent-ant").onclick(); }
     else if (ev.key === "Enter") { ev.preventDefault(); $("ent-guardar").onclick(); }
-    else if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "z") { ev.preventDefault(); $("ent-deshacer").onclick(); }
-    else if (E.sel !== null && E.cajas[E.sel] && /^[sS]$/.test(ev.key)) { ev.preventDefault(); marcarEnt("si"); }
-    else if (E.sel !== null && E.cajas[E.sel] && (/^[nN]$/.test(ev.key) || ev.key === "Delete" || ev.key === "Backspace")) { ev.preventDefault(); marcarEnt("no"); }
-    else if (ev.key === "Escape") { E.sel = null; pintarEnt(); }
+    else edEnt.teclas(ev);
   });
 
   async function persistirEnt() {
@@ -1312,40 +1338,29 @@
 
   const cuentaFoto = (f) => f.cajas.filter((c) => c.e === "si").length;
 
+  const edFoto = crearEditor("fo-", {
+    estado: () => (F.fotos[F.i] && F.fotos[F.i].cajas ? F.fotos[F.i] : null),
+    alCambiar: () => { guardarFoto(F.fotos[F.i]); resumenFoto(); },
+  });
   function pintarFoto() {
-    const f = F.fotos[F.i], cv = $("fo-lienzo");
-    if (!f) return;
-    const W = f.img.naturalWidth, H = f.img.naturalHeight, esc = Math.min(1, 1600 / Math.max(W, H));
-    cv.width = Math.round(W * esc); cv.height = Math.round(H * esc);
-    const cx = cv.getContext("2d");
-    cx.drawImage(f.img, 0, 0, cv.width, cv.height);
-    const css = getComputedStyle(document.documentElement), col = { si: css.getPropertyValue("--good").trim() || "#2f7d4f", duda: css.getPropertyValue("--warn").trim() || "#a86a12", no: css.getPropertyValue("--bad").trim() || "#b03a2e" };
-    const g = Math.max(2, Math.round(cv.width / 400));
-    let k = 0;
-    for (const c of f.cajas) {
-      const [x1, y1, x2, y2] = c.c.map((v) => v * esc);
-      cx.lineWidth = c.e === "si" ? g : Math.max(1, g - 1);
-      cx.setLineDash(c.e === "si" ? [] : [g * 3, g * 2]);
-      cx.strokeStyle = col[c.e]; cx.strokeRect(x1, y1, x2 - x1, y2 - y1);
-      if (c.e === "si") {
-        k++;
-        const t = String(k), fs = Math.max(14, Math.round(cv.width / 45));
-        cx.font = `600 ${fs}px system-ui,sans-serif`;
-        const tw = cx.measureText(t).width + fs * 0.6;
-        cx.fillStyle = col.si; cx.fillRect(x1, Math.max(0, y1 - fs * 1.3), tw, fs * 1.3);
-        cx.fillStyle = "#fff"; cx.fillText(t, x1 + fs * 0.3, Math.max(0, y1 - fs * 1.3) + fs * 1.0);
-      }
-    }
-    cx.setLineDash([]);
-    const n = cuentaFoto(f), d = f.cajas.filter((c) => c.e === "duda").length, man = f.cajas.filter((c) => c.o === "h").length, dec = f.cajas.filter((c) => c.o === "m" && ((c.s >= UMBRAL_PERSONA) !== (c.e === "si"))).length;
+    const f = F.fotos[F.i], cv = $("fo-cv");
+    if (!f || !f.cajas) return;
+    if (cv.width !== f.ancho || cv.height !== f.alto) { cv.width = f.ancho; cv.height = f.alto; }
+    edFoto.pintar(); resumenFoto();
+  }
+  function resumenFoto() {
+    const f = F.fotos[F.i]; if (!f) return;
+    const n = cuentaFoto(f), d = f.cajas.filter((c) => c.e === "duda").length, man = f.cajas.filter((c) => c.o === "h").length,
+      dec = f.cajas.filter((c) => c.o === "m" && (c.aj || (c.s >= UMBRAL_PERSONA) !== (c.e === "si"))).length;
     $("fo-nombre").textContent = f.nombre;
-    $("fo-info").textContent = `${W} × ${H} px · foto ${F.i + 1} de ${F.fotos.length}`;
+    $("fo-info").textContent = `${f.ancho} × ${f.alto} px · foto ${F.i + 1} de ${F.fotos.length}`;
     $("fo-n").textContent = fmtN(n);
     $("fo-n-s").textContent = man || dec ? `con ${man + dec} ${man + dec === 1 ? "corrección tuya" : "correcciones tuyas"}` : "según la herramienta";
     $("fo-d").textContent = fmtN(d);
     const tot = F.fotos.reduce((a, x) => a + (x.cajas ? cuentaFoto(x) : 0), 0);
     $("fo-total").textContent = fmtN(tot);
     $("fo-total-s").textContent = `${F.fotos.length} ${F.fotos.length === 1 ? "foto" : "fotos"}`;
+    $("fo-ant").disabled = F.i <= 0; $("fo-sig").disabled = F.i >= F.fotos.length - 1;
     pintarTiras(); estadoGuardadoFoto();
   }
 
@@ -1356,7 +1371,7 @@
       const b = document.createElement("button"); b.className = i === F.i ? "on" : "";
       const im = document.createElement("img"); im.src = f.url; im.alt = "";
       const t = document.createElement("span"); t.innerHTML = f.cajas ? `<b>${cuentaFoto(f)}</b> personas` : "Contando…";
-      b.append(im, t); b.onclick = () => { if (f.cajas) { F.i = i; pintarFoto(); } };
+      b.append(im, t); b.onclick = () => irAFoto(i);
       return b;
     }));
   }
@@ -1373,6 +1388,7 @@
       msg.hidden = false; msg.className = "note"; msg.textContent = `Contando personas en «${f.nombre}»… La primera vez se cargan los modelos y tarda un poco más.`;
       try {
         f.img = new Image(); f.img.src = f.url; await f.img.decode();
+        Object.assign(f, { ancho: f.img.naturalWidth, alto: f.img.naturalHeight, fondo: () => f.img, sel: null, arr: null, deshacer: [] });
         f.id = "foto-" + slug(f.nombre.replace(/\.\w+$/, "")) + "-" + f.img.naturalWidth + "x" + f.img.naturalHeight + "-" + (f.tam || 0).toString(36);
         const previo = S.entrenos.find((d) => d.id === f.id);
         let guardadas = null;
@@ -1422,41 +1438,18 @@
     b.disabled = false;
   };
 
-  // Coordenadas de la imagen a partir de un toque en el lienzo.
-  function puntoFoto(e) {
-    const f = F.fotos[F.i], cv = $("fo-lienzo"), r = cv.getBoundingClientRect();
-    return [((e.clientX - r.left) / r.width) * f.img.naturalWidth, ((e.clientY - r.top) / r.height) * f.img.naturalHeight];
-  }
-  function anadirManual(e) {
-    const f = F.fotos[F.i]; if (!f?.cajas) return;
-    const [x, y] = puntoFoto(e), W = f.img.naturalWidth, H = f.img.naturalHeight;
-    const vistas = f.cajas.filter((c) => c.e === "si").map((c) => [c.c[2] - c.c[0], c.c[3] - c.c[1]]);
-    const med = (a) => a.sort((p, q) => p - q)[a.length >> 1];
-    const w = vistas.length ? med(vistas.map((v) => v[0])) : W * 0.08, h = vistas.length ? med(vistas.map((v) => v[1])) : H * 0.25;
-    f.cajas.push({ c: [x - w / 2, y - h / 2, x + w / 2, y + h / 2].map((v, i) => Math.round(Math.max(0, Math.min(i % 2 ? H : W, v)))), s: 1, o: "h", e: "si" });
-    pintarFoto(); guardarFoto(f);
-  }
-  {
-    const cv = $("fo-lienzo");
-    let pulsado = null, largo = false;
-    cv.addEventListener("pointerdown", (e) => { largo = false; clearTimeout(pulsado); pulsado = setTimeout(() => { largo = true; anadirManual(e); }, 550); });
-    cv.addEventListener("pointermove", (e) => { if (e.pointerType !== "mouse" && pulsado && Math.abs(e.movementX) + Math.abs(e.movementY) > 6) clearTimeout(pulsado); });
-    cv.addEventListener("pointerup", () => clearTimeout(pulsado));
-    cv.addEventListener("pointercancel", () => clearTimeout(pulsado));
-    cv.addEventListener("contextmenu", (e) => e.preventDefault());
-    cv.addEventListener("dblclick", (e) => { e.preventDefault(); anadirManual(e); });
-    cv.addEventListener("click", (e) => {
-      if (largo) return;
-      const f = F.fotos[F.i]; if (!f?.cajas) return;
-      const [x, y] = puntoFoto(e);
-      const bajo = f.cajas.filter((c) => x >= c.c[0] && x <= c.c[2] && y >= c.c[1] && y <= c.c[3]);
-      if (!bajo.length) return;
-      const c = bajo.reduce((a, b) => ((a.c[2] - a.c[0]) * (a.c[3] - a.c[1]) <= (b.c[2] - b.c[0]) * (b.c[3] - b.c[1]) ? a : b));
-      if (c.o === "h") f.cajas.splice(f.cajas.indexOf(c), 1);
-      else c.e = c.e === "si" ? "no" : "si";
-      pintarFoto(); guardarFoto(f);
-    });
-  }
+  $("fo-deshacer").onclick = edFoto.deshacer;
+  $("ent-fotos").onchange = (e) => { const fs = [...e.target.files]; e.target.value = ""; if (fs.length) { irA("ana"); abrirFotos(fs); } };
+  const irAFoto = (i) => { if (F.fotos[i] && F.fotos[i].cajas) { F.i = i; pintarFoto(); } };
+  $("fo-ant").onclick = () => irAFoto(F.i - 1);
+  $("fo-sig").onclick = () => irAFoto(F.i + 1);
+  document.addEventListener("keydown", (ev) => {
+    if ($("paso-foto").hidden || $("sec-ana").hidden || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
+    if (ev.key === "ArrowRight") { ev.preventDefault(); irAFoto(F.i + 1); }
+    else if (ev.key === "ArrowLeft") { ev.preventDefault(); irAFoto(F.i - 1); }
+    else edFoto.teclas(ev);
+  });
+  window.addEventListener("resize", () => { if (!$("paso-foto").hidden) pintarFoto(); });
   $("in-foto").onchange = (e) => { const fs = [...e.target.files]; e.target.value = ""; abrirFotos(fs); };
   $("in-foto-cam").onchange = (e) => { const fs = [...e.target.files]; e.target.value = ""; abrirFotos(fs); };
   $("fo-mas").onchange = (e) => { const fs = [...e.target.files]; e.target.value = ""; abrirFotos(fs); };

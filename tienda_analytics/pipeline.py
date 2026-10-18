@@ -20,7 +20,7 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 
-from .reid import ParametrosReid, Reidentificador, agrupar
+from .reid import ParametrosReid, Reidentificador, agrupar, duplicados
 from .zonas import Config, cargar_config, dibujar_zonas
 
 CLASE_PERSONA = 0
@@ -217,10 +217,17 @@ def _a_h264(origen: Path, destino: Path) -> Path:
 
 
 def personas_unicas(trayectos: dict[int, Trayecto], config: Config,
-                    reid: Reidentificador | None) -> dict[int, int]:
-    """Id de persona por trayecto válido; sin re-identificación, uno por trayecto."""
+                    reid: Reidentificador | None, registro: list | None = None) -> dict[int, int]:
+    """Id de persona por trayecto válido; sin re-identificación, uno por trayecto.
+
+    Con `registro`, antes descarta los trayectos duplicados (como hace el navegador):
+    los que no aparecen en el resultado no cuentan.
+    """
     validos = {i: (t.primer_t, t.ultimo_t) for i, t in trayectos.items()
                if t.ultimo_t - t.primer_t >= config.min_segundos_visita}
+    if registro:
+        for i in duplicados(registro, validos):
+            del validos[i]
     if reid is None:
         return {i: n for n, i in enumerate(sorted(validos), 1)}
     return agrupar(validos, reid)
@@ -251,7 +258,7 @@ def guardar_eventos(trayectos: dict[int, Trayecto], config: Config, ruta_db: Pat
     validas = 0
     for tr in trayectos.values():
         dur = tr.ultimo_t - tr.primer_t
-        if dur < config.min_segundos_visita:
+        if dur < config.min_segundos_visita or (personas is not None and tr.id not in personas):
             continue
         validas += 1
         persona = (personas or {}).get(tr.id, tr.id)
@@ -297,20 +304,22 @@ def analizar(video: str, config: Config, salida: Path, modelo: str = "yolo11n.pt
             aviso = f"No se encontró {modelo_reid}; la re-identificación usa solo color de ropa."
             modelo_reid = ""
         reid = Reidentificador(modelo_reid or None, parametros=parametros_reid)
-    registro: list | None = [] if video_anotado else None
+    registro: list = []  # cajas por fotograma: para descartar duplicados y para el vídeo anotado
     trayectos, calor, fondo, dur = procesar(
         video, config, modelo, paso, confianza, registro, max_frames, reid, progreso, tracker)
-    personas = personas_unicas(trayectos, config, reid)
+    personas = personas_unicas(trayectos, config, reid, registro)
     validas = guardar_eventos(trayectos, config, salida / "eventos.sqlite", personas)
     if fondo is not None:
         guardar_mapa_calor(calor, fondo, salida / "mapa_calor.png")
         cv2.imwrite(str(salida / "zonas.png"), dibujar_zonas(fondo, config))
-    if registro:
+    if video_anotado and registro:
         escribir_video_anotado(video, registro, personas, config, salida / "video_anotado.mp4")
     resumen = {
         "segundos_video": round(dur, 1),
         "trayectos_detectados": len(trayectos),
         "conteo_total": validas,
+        "duplicados_descartados": sum(1 for t in trayectos.values()
+                                      if t.ultimo_t - t.primer_t >= config.min_segundos_visita) - validas,
         "personas_unicas": len(set(personas.values())),
         "reidentificacion": "desactivada" if reid is None else (modelo_reid or "solo color"),
     }
