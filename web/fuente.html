@@ -1,0 +1,488 @@
+<title>Analítica de tienda física</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --bg:#f5f7f7; --surface:#ffffff; --sunk:#eef2f3; --line:#dde4e5; --fg:#16232a; --muted:#5b6b72;
+  --accent:#17708a; --accent-fg:#ffffff; --accent-soft:#e3f0f3; --good:#2f7d4f; --warn:#a86a12; --bad:#b03a2e;
+  --font-body:"Figtree",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-data:"JetBrains Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f1719; --surface:#162125; --sunk:#121b1e; --line:#26353a; --fg:#e4ecee; --muted:#93a5ab;
+  --accent:#5cb8d1; --accent-fg:#0b1418; --accent-soft:#1b3138; --good:#6cc28f; --warn:#e0a24a; --bad:#ec7b6e; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1719; --surface:#162125; --sunk:#121b1e; --line:#26353a; --fg:#e4ecee; --muted:#93a5ab;
+  --accent:#5cb8d1; --accent-fg:#0b1418; --accent-soft:#1b3138; --good:#6cc28f; --warn:#e0a24a; --bad:#ec7b6e; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:15px;line-height:1.5}
+.wrap{display:grid;grid-template-columns:210px minmax(0,1fr);min-height:100%}
+nav{border-right:1px solid var(--line);padding:28px 16px;display:flex;flex-direction:column;gap:6px;background:var(--surface)}
+nav .brand{font-weight:700;font-size:15px;margin-bottom:18px;letter-spacing:.01em}
+nav button{all:unset;cursor:pointer;padding:8px 12px;border-radius:6px;color:var(--muted);font-weight:500}
+nav button[aria-current="true"]{background:var(--accent-soft);color:var(--accent);font-weight:600}
+nav .foot{margin-top:auto;color:var(--muted);font-size:12px;line-height:1.45;padding-top:24px}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+main{padding-block:28px 48px;padding-inline:32px;display:flex;flex-direction:column;gap:22px;min-width:0;max-width:1120px}
+h1{font-size:26px;margin:0;text-wrap:balance}
+h2{font-size:17px;margin:0;text-wrap:balance}
+h3{font-size:14px;margin:0;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+p{margin:0}
+.panel{display:flex;flex-direction:column;gap:18px;min-width:0}
+.stack{display:flex;flex-direction:column;gap:8px;min-width:0}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.hint{color:var(--muted);font-size:13.5px;max-width:75ch}
+.meta{color:var(--muted);font-size:13px;font-family:var(--font-data)}
+.note{background:var(--accent-soft);border-radius:8px;padding:12px 16px;font-size:14px;max-width:80ch}
+.note.warn{background:color-mix(in srgb,var(--warn) 14%,transparent)}
+.note.bad{background:color-mix(in srgb,var(--bad) 14%,transparent)}
+.btn{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:7px;border:1px solid var(--line);background:var(--surface);font-weight:500;font-size:14px}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:600}
+.btn.small{padding:4px 10px;font-size:13px}
+.btn.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.btn[disabled]{opacity:.5;pointer-events:none}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted);min-width:0}
+label.f.inline{flex-direction:row;align-items:center;gap:8px}
+select{max-width:100%}
+input[type=text],input[type=date],input[type=time],input[type=number],select{font:inherit;font-size:14px;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:7px 9px;min-width:0}
+.grid2{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.drop{border:1.5px dashed var(--line);border-radius:12px;background:var(--surface);padding:34px 20px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center}
+.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.editor{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}
+.lienzo{position:relative;border-radius:8px;overflow:hidden;background:var(--sunk);border:1px solid var(--line)}
+.lienzo canvas{display:block;width:100%;height:auto;touch-action:none}
+.lienzo.dibujando canvas{cursor:crosshair}
+.items{display:flex;flex-direction:column;gap:8px}
+.item{display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.item .sw{width:14px;height:14px;border-radius:3px}
+.item .campos{display:flex;flex-direction:column;gap:4px;min-width:0}
+.item input{padding:4px 7px;font-size:13px}
+.progreso{height:8px;background:var(--sunk);border-radius:99px;overflow:hidden}
+.progreso div{height:100%;background:var(--accent);width:0;transition:width .2s}
+.kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.kpis.k4{grid-template-columns:repeat(4,minmax(0,1fr))} .kpis.k3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.kpi{background:var(--surface);padding:14px 16px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.kpi .l{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.kpi .v{font-family:var(--font-data);font-size:24px;font-weight:600;font-variant-numeric:tabular-nums}
+.kpi .s{font-size:12px;color:var(--muted)}
+.kpi.hl .v{color:var(--accent)}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.tabs button{all:unset;cursor:pointer;padding:9px 14px;color:var(--muted);font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs button[aria-selected="true"]{color:var(--fg);border-color:var(--accent)}
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+.funnel{display:flex;flex-direction:column;gap:10px}
+.frow{display:grid;grid-template-columns:190px minmax(0,1fr) 54px;gap:12px;align-items:center}
+.frow .bar{height:24px;background:var(--accent);border-radius:4px;min-width:2px}
+.frow .n{font-family:var(--font-data);text-align:right;font-variant-numeric:tabular-nums}
+.frow .pct{grid-column:2;color:var(--muted);font-size:12.5px;font-family:var(--font-data);margin-top:-6px}
+.chart svg{display:block;width:100%;height:auto;overflow:visible}
+.chart text{font-family:var(--font-data);font-size:11px;fill:var(--muted)}
+.chart .ax{stroke:var(--line)}
+.chart .b{fill:var(--accent)}
+.chart .a{fill:color-mix(in srgb,var(--accent) 22%,transparent);stroke:var(--accent);stroke-width:1.5}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:8px 12px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+tr:last-child td{border-bottom:none}
+td.num,th.num{font-family:var(--font-data);text-align:right;font-variant-numeric:tabular-nums}
+td.wrap{white-space:normal;min-width:220px}
+.chip{display:inline-block;padding:1px 8px;border-radius:99px;background:var(--accent-soft);color:var(--accent);font-family:var(--font-data);font-size:12.5px;font-weight:600}
+.dif-0{color:var(--good)} .dif-x{color:var(--warn)}
+.chip.multi{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
+.biblio{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}
+.vcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;min-width:0}
+.vthumb{position:relative;aspect-ratio:16/9;background:var(--sunk);max-width:100%}
+.vthumb img,.vthumb video{width:100%;height:100%;object-fit:cover;display:block}
+.vthumb video{object-fit:contain;background:#000}
+.vtipo,.vdur{position:absolute;top:8px;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:99px;background:var(--surface);color:var(--fg);pointer-events:none}
+.vtipo{left:8px;text-transform:uppercase;letter-spacing:.05em}
+.vdur{right:8px;font-family:var(--font-data);top:auto;bottom:8px}
+.vtipo.t-tienda{background:var(--accent);color:var(--accent-fg)}
+.vtipo.t-estres{background:var(--warn);color:var(--surface)}
+.vbody{padding:12px 14px 14px;display:flex;flex-direction:column;gap:8px;flex:1}
+.vbody h4{margin:0;font-size:15px;font-weight:600}
+.vbody .hint{font-size:13px;margin:0}
+.vres{font-size:13px}
+.vfuente{margin:auto 0 0;color:var(--muted);font-size:11.5px;line-height:1.4}
+.ent-grid{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,1.3fr);gap:18px;align-items:start}
+.ent-cv{width:100%;display:block;border-radius:8px;background:#000;touch-action:none;cursor:crosshair;max-width:100%}
+.ent-oculto{position:fixed;left:-10px;top:-10px;width:1px;height:1px;opacity:0;pointer-events:none}
+.ent-lista{display:flex;flex-wrap:wrap;gap:6px;max-height:160px;overflow:auto}
+.ent-lista .chip{border:none;cursor:pointer}
+.kpis.k2{grid-template-columns:repeat(2,minmax(0,1fr))}
+#ent-t{width:100%;accent-color:var(--accent)}
+.leyenda .sw{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.ecard{all:unset;cursor:pointer;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;min-width:0}
+.ecard:hover,.ecard:focus-visible{border-color:var(--accent);outline:none}
+.ecard .vthumb{display:block}
+.ebody{display:flex;flex-direction:column;gap:2px;padding:10px 12px 12px;font-size:14px}
+.ent-biblio{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
+.guia{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 18px}
+.guia summary{cursor:pointer;font-weight:600;font-size:15px;padding:4px 0}
+.guia ol{margin:10px 0 6px;padding-left:22px;display:flex;flex-direction:column;gap:8px;max-width:85ch;font-size:14px}
+.guia ul{margin:6px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+.guia code{font-family:var(--font-data);font-size:12.5px;background:var(--sunk);padding:1px 5px;border-radius:4px}
+.sw-t{font-weight:600;border-bottom:3px solid var(--c)}
+.ent-visor{position:relative;min-width:0}
+.foto-tiras{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
+.foto-tiras button{all:unset;cursor:pointer;flex:0 0 auto;display:flex;flex-direction:column;gap:4px;width:110px;font-size:12px;color:var(--muted)}
+.foto-tiras img{width:110px;height:74px;object-fit:cover;border-radius:6px;border:2px solid transparent}
+.foto-tiras button.on img{border-color:var(--accent)}
+.foto-tiras b{color:var(--fg);font-family:var(--font-data)}
+.ent-acciones{position:absolute;z-index:2;display:flex;flex-wrap:wrap;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:6px 8px;box-shadow:0 4px 14px rgb(0 0 0 / .18);max-width:100%}
+.solo-movil{display:none!important}
+@media (pointer:coarse),(max-width:700px){.solo-movil{display:inline-flex!important}p.solo-movil{display:block!important}}
+.empty{color:var(--muted);font-size:14px;padding:14px;border:1px dashed var(--line);border-radius:10px}
+.media{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:16px;align-items:start}
+figure{margin:0;display:flex;flex-direction:column;gap:6px;min-width:0}
+figcaption{color:var(--muted);font-size:13px}
+.visor{position:relative}
+.visor video,.visor canvas,figure canvas{width:100%;display:block;border-radius:8px}
+.visor canvas{position:absolute;inset:0;height:100%;pointer-events:none}
+.leyenda{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)}
+@media (max-width:900px){.ent-grid{grid-template-columns:1fr}.editor{grid-template-columns:1fr}.media{grid-template-columns:1fr}.grid2{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:760px){
+  .wrap{grid-template-columns:1fr}
+  nav{flex-direction:row;flex-wrap:wrap;border-right:none;border-bottom:1px solid var(--line);padding:14px 16px}
+  nav .brand{width:100%;margin-bottom:4px} nav .foot{display:none}
+  main{padding-inline:16px}
+  .kpis,.kpis.k4{grid-template-columns:repeat(2,minmax(0,1fr))} .kpis.k3{grid-template-columns:1fr}
+  .two{grid-template-columns:1fr}
+  .frow{grid-template-columns:110px minmax(0,1fr) 40px}
+}
+</style>
+<div class="wrap">
+<nav aria-label="Secciones">
+  <div class="brand">Analítica de tienda física</div>
+  <button data-sec="ana" aria-current="true">Analizar</button>
+  <button data-sec="res">Resultados</button>
+  <button data-sec="ven">Ventas</button>
+  <button data-sec="pru">Pruebas</button>
+  <button data-sec="ent">Entrenamiento</button>
+  <div class="foot">El vídeo se analiza en tu navegador y no sale de tu equipo. Solo se guardan posiciones, tiempos y un número por cliente; nunca imágenes de personas.</div>
+</nav>
+<main>
+
+<!-- ============================================================ ANALIZAR -->
+<section id="sec-ana" class="panel">
+  <div class="stack"><h1>Analizar vídeo o foto</h1><span class="meta">Versión 13 · fotos y vídeos</span>
+  <p class="hint">Sube la grabación de una cámara de la tienda, o una foto si solo quieres contar cuántas personas hay en un momento. La herramienta detecta a cada persona, la sigue por la imagen, une los tramos de la misma persona para no contarla dos veces y calcula las estadísticas.</p></div>
+
+  <div id="paso-subir" class="drop">
+    <p class="note solo-movil" style="text-align:left">Desde el celular: para contar personas en una foto, pulsa «Elegir fotos» (las de tu galería) o «Hacer una foto». Para un vídeo, pulsa «Grabar con la cámara», graba entre 20 segundos y 1 minuto con el teléfono quieto (mejor apoyado y desde arriba, como una cámara de techo) y confirma el vídeo. Se analiza en el propio teléfono; en un celular tarda más que en un ordenador, así que conviene dejar 4 fotogramas por segundo.</p>
+    <h2>Arrastra aquí un vídeo o una foto</h2>
+    <p class="hint">Vídeo MP4 o WebM: un minuto tarda aproximadamente entre uno y tres minutos. Foto JPG o PNG: cuenta las personas en unos segundos. Todo lo procesa tu navegador.</p>
+    <div class="row" style="justify-content:center">
+      <label class="btn primary">Elegir vídeo<input id="in-video" type="file" accept="video/*,image/*" multiple hidden></label>
+      <label class="btn solo-movil">Grabar con la cámara<input id="in-camara" type="file" accept="video/*" capture="environment" hidden></label>
+      <label class="btn primary">Elegir fotos<input id="in-foto" type="file" accept="image/*" multiple hidden></label>
+      <label class="btn solo-movil">Hacer una foto<input id="in-foto-cam" type="file" accept="image/*" capture="environment" hidden></label>
+      <button class="btn" id="b-ejemplo">Probar con el vídeo de ejemplo</button>
+    </div>
+  </div>
+
+  <div id="paso-foto" class="panel" hidden>
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <div class="stack" style="gap:2px;min-width:0"><h2 id="fo-nombre">Contar personas en fotos</h2><span class="meta" id="fo-info"></span></div>
+        <div class="row" style="gap:8px"><label class="btn small">Añadir fotos<input id="fo-mas" type="file" accept="image/*" multiple hidden></label><label class="btn small solo-movil">Hacer otra foto<input id="fo-mas-cam" type="file" accept="image/*" capture="environment" hidden></label><button class="btn small" id="fo-volver">Volver</button></div>
+      </div>
+      <div id="fo-msg" class="note" hidden></div>
+      <div class="ent-visor">
+        <canvas id="fo-cv" class="ent-cv"></canvas>
+        <div class="ent-acciones" id="fo-acciones" hidden>
+          <span class="meta" id="fo-a-estado"></span>
+          <button class="btn small" id="fo-a-si">Es persona</button>
+          <button class="btn small" id="fo-a-no">No es persona</button>
+          <button class="btn small" id="fo-a-borrar">Borrar</button>
+          <button class="btn small" id="fo-a-cerrar" aria-label="Cerrar">✕</button>
+        </div>
+      </div>
+      <div class="row" style="gap:8px">
+        <button class="btn small" id="fo-ant">‹ Foto anterior</button><button class="btn small" id="fo-sig">Foto siguiente ›</button><button class="btn small" id="fo-deshacer">Deshacer</button>
+      </div>
+      <div class="leyenda">
+        <span><i class="sw" style="background:#17a2c4"></i>Vista por la herramienta</span>
+        <span><i class="sw" style="background:#e0b000"></i>Dudosa (no cuenta)</span>
+        <span><i class="sw" style="background:#2fbf5f"></i>Añadida por ti</span>
+        <span><i class="sw" style="background:#d9534f"></i>Quitada</span>
+      </div>
+      <div class="kpis k3">
+        <div class="kpi hl"><span class="l">Personas en esta foto</span><span class="v" id="fo-n">–</span><span class="s" id="fo-n-s">&nbsp;</span></div>
+        <div class="kpi"><span class="l">Dudosas</span><span class="v" id="fo-d">–</span><span class="s">en amarillo, no cuentan hasta que decidas</span></div>
+        <div class="kpi"><span class="l">Total de las fotos</span><span class="v" id="fo-total">–</span><span class="s" id="fo-total-s">&nbsp;</span></div>
+      </div>
+      <p class="hint">Se corrige igual que en Entrenamiento: toca una caja y elige «Es persona» o «No es persona»; arrastra sus esquinas o su interior para ajustarla; si falta alguien, arrastra sobre la imagen un rectángulo de la cabeza a los pies. Teclado: ← → cambiar de foto, S / N, Ctrl+Z deshacer, Esc soltar.</p>
+      <div id="fo-tiras" class="foto-tiras"></div>
+      <div class="stack" style="gap:6px;border-top:1px solid var(--line);padding-top:12px">
+        <h3>Entrenamiento</h3>
+        <p class="hint">Cada foto y tus correcciones se guardan solas en Entrenamiento (solo las cajas, nunca la imagen). Para reentrenar el detector, descarga las fotos con sus cajas; el .zip sirve junto a los de vídeos.</p>
+        <span class="hint" id="fo-guardado"></span>
+        <div class="row"><button class="btn small" id="fo-exportar" disabled>Descargar fotos para entrenamiento (.zip)</button><span class="hint" id="fo-msg-exp"></span></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="paso-config" class="panel" hidden>
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <div class="stack" style="gap:2px"><h2 id="v-nombre"></h2><span class="meta" id="v-info"></span></div>
+        <button class="btn small" id="b-otro">Cambiar de vídeo</button>
+      </div>
+      <div class="grid2">
+        <label class="f">Cámara o tienda<input type="text" id="c-nombre" placeholder="Ej. Pasillo menaje"></label>
+        <label class="f">Fecha de la grabación<input type="date" id="c-fecha"></label>
+        <label class="f">Hora del primer fotograma<input type="time" id="c-hora" step="1"></label>
+        <label class="f">Precisión
+          <select id="c-fps"><option value="4">Rápida (4 fotogramas/s)</option><option value="8" selected>Normal (8 fotogramas/s)</option><option value="12">Alta (12 fotogramas/s)</option></select></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <div class="stack" style="gap:2px"><h2>Zonas y líneas de la cámara</h2>
+        <p class="hint">Dibuja las zonas de producto (pulsa para poner cada esquina y pulsa sobre la primera para cerrar) y las líneas de paso, como la puerta. Son opcionales: sin zonas igualmente se cuentan los clientes.</p></div>
+        <label class="f" style="min-width:200px">Configuración guardada<select id="c-plantilla"></select></label>
+      </div>
+      <div class="editor">
+        <div class="stack">
+          <div class="row">
+            <button class="btn small" id="b-zona">+ Zona</button>
+            <button class="btn small" id="b-linea">+ Línea de paso</button>
+            <button class="btn small" id="b-deshacer" hidden>Deshacer punto</button>
+            <button class="btn small" id="b-cancelar-dib" hidden>Cancelar</button>
+            <span class="hint" id="ayuda-dib"></span>
+          </div>
+          <div class="lienzo" id="lienzo"><canvas id="cv-editor"></canvas></div>
+        </div>
+        <div class="stack">
+          <div class="items" id="items"></div>
+          <div class="grid2" style="grid-template-columns:1fr 1fr">
+            <label class="f">Parada larga desde (s)<input type="number" id="c-parada" min="1" step="1" value="3"></label>
+            <label class="f">Visita mínima (s)<input type="number" id="c-minimo" min="0" step="0.5" value="1"></label>
+          </div>
+          <button class="btn small" id="b-guardar-cam">Guardar configuración de la cámara</button>
+          <span class="hint" id="msg-cam"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="row"><button class="btn primary" id="b-analizar">Analizar vídeo</button><span class="hint" id="msg-analizar"></span></div>
+  </div>
+
+  <div id="paso-progreso" class="card" hidden>
+    <div class="row" style="justify-content:space-between"><h2>Analizando…</h2>
+      <div class="row" style="gap:8px">
+        <label class="f inline">Velocidad<select id="c-ritmo">
+          <option value="0" selected>Máxima</option><option value="2">2× el vídeo</option><option value="1">1× (tiempo real)</option><option value="0.5">0,5×</option><option value="0.25">0,25×</option>
+        </select></label>
+        <button class="btn small" id="b-pausa">Pausar</button><button class="btn small" id="b-cancelar">Cancelar</button>
+      </div></div>
+    <div class="progreso"><div id="barra"></div></div>
+    <div class="row meta" id="estado"></div>
+    <canvas id="cv-vivo" style="width:100%;max-width:720px;border-radius:8px;display:block"></canvas>
+  </div>
+  <div id="msg-error" class="note bad" hidden></div>
+</section>
+
+<!-- ============================================================ RESULTADOS -->
+<section id="sec-res" class="panel" hidden>
+  <div class="row" style="justify-content:space-between;align-items:flex-end">
+    <div class="stack" style="gap:4px"><h1>Resultados</h1><span class="meta" id="r-meta"></span></div>
+    <div class="row">
+      <label class="f" style="min-width:min(260px,100%);max-width:100%">Análisis<select id="r-sel"></select></label>
+    </div>
+  </div>
+  <div id="r-vacio" class="empty">Aún no hay análisis. Sube un vídeo en «Analizar».</div>
+  <div id="r-cuerpo" class="panel" hidden>
+    <div class="kpis" id="kpis"></div>
+    <div class="tabs" role="tablist" id="tabs">
+      <button role="tab" aria-selected="true" data-tab="afl">Afluencia</button>
+      <button role="tab" aria-selected="false" data-tab="zon">Zonas y recorridos</button>
+      <button role="tab" aria-selected="false" data-tab="per">Clientes</button>
+      <button role="tab" aria-selected="false" data-tab="ven">Ventas del periodo</button>
+      <button role="tab" aria-selected="false" data-tab="rev">Revisar en el vídeo</button>
+    </div>
+    <div id="tab-afl" class="panel">
+      <div class="two">
+        <div class="card"><h3 id="t-nuevos">Clientes nuevos</h3><div class="chart" id="g-nuevos"></div></div>
+        <div class="card"><h3>Personas en cámara a la vez</h3><div class="chart" id="g-ocup"></div></div>
+      </div>
+      <div class="two">
+        <div class="card"><h3>Embudo</h3><div class="funnel" id="funnel"></div></div>
+        <div class="card"><h3>Tiempo en cámara por cliente</h3><div class="chart" id="g-perm"></div><p class="hint" id="perm-txt"></p></div>
+      </div>
+      <div class="stack" id="bloque-lineas"><h2>Entradas y salidas por línea</h2><div class="tbl"><table id="t-lineas"></table></div></div>
+      <div class="stack"><h2>Por intervalo</h2><div class="tbl"><table id="t-intervalos"></table></div></div>
+    </div>
+    <div id="tab-zon" class="panel" hidden>
+      <div class="tbl"><table id="t-zonas"></table></div>
+      <div class="two">
+        <div class="stack"><h2>Recorridos más frecuentes</h2><div class="tbl"><table id="t-rutas"></table></div></div>
+        <div class="stack"><h2>Pasos entre zonas</h2><div class="tbl"><table id="t-trans"></table></div></div>
+      </div>
+      <figure><canvas id="cv-calor"></canvas><figcaption>Mapa de calor: por dónde pisan los clientes, con las zonas encima.</figcaption></figure>
+    </div>
+    <div id="tab-per" class="panel" hidden>
+      <p class="hint">Cada fila es un cliente único. «Conteos» es cuántas veces lo contó el seguimiento antes de unir sus tramos: más de uno significa que se perdió de vista y se volvió a reconocer. Compruébalo en «Revisar en el vídeo».</p>
+      <div class="tbl"><table id="t-personas"></table></div>
+      <div class="row"><button class="btn small" id="b-csv-per">Descargar clientes (CSV)</button><button class="btn small" id="b-csv-tr">Descargar tramos y zonas (CSV)</button><button class="btn small" id="b-csv-int">Descargar intervalos (CSV)</button><span class="hint" id="msg-csv"></span></div>
+    </div>
+    <div id="tab-ven" class="panel" hidden>
+      <p class="hint">Tickets del TPV dentro del periodo del vídeo. Súbelos en «Ventas».</p>
+      <div class="tbl"><table id="t-vper"></table></div>
+    </div>
+    <div id="tab-rev" class="panel" hidden>
+      <div id="rev-sin" class="stack">
+        <p class="hint">Para revisar, abre el mismo vídeo: se reproduce aquí con cada cliente marcado con su número (P1, P2…). En gris, los tramos demasiado cortos para contar.</p>
+        <div class="row"><label class="btn">Abrir el vídeo<input id="in-rev" type="file" accept="video/*" hidden></label><span class="hint" id="msg-rev"></span></div>
+      </div>
+      <div class="visor" id="visor" hidden><video id="v-rev" controls muted playsinline></video><canvas id="cv-rev"></canvas></div>
+        <label class="f inline">Velocidad de reproducción<select id="c-vel-rev"><option value="0.25">0,25×</option><option value="0.5">0,5×</option><option value="1" selected>1×</option><option value="1.5">1,5×</option><option value="2">2×</option><option value="4">4×</option></select></label>
+      <div class="leyenda"><span>Pn = cliente único</span><span>gris = tramo corto, no cuenta</span></div>
+    </div>
+    <div class="row"><button class="btn small" id="b-anotar">Anotar en el registro de pruebas</button><button class="btn small" id="b-borrar">Borrar este análisis</button><button class="btn small" id="b-borrar-ok" hidden>Sí, borrar</button><span class="hint" id="msg-borrar"></span></div>
+  </div>
+</section>
+
+<!-- ============================================================ VENTAS -->
+<section id="sec-ven" class="panel" hidden>
+  <div class="stack"><h1>Ventas</h1>
+  <p class="hint">Tickets del TPV para calcular la conversión. CSV con columnas <code>ticket_id, fecha_hora, importe, categorias</code> (categorías separadas por «;», iguales a las de las zonas).</p></div>
+  <div class="row">
+    <label class="btn primary">Subir tickets (CSV)<input id="in-tickets" type="file" accept=".csv,text/csv" hidden></label>
+    <select id="v-modo"><option value="anadir">Añadir a los existentes</option><option value="reemplazar">Reemplazar todo</option></select>
+    <button class="btn small" id="b-tk-ejemplo">Cargar tickets de ejemplo</button>
+    <span class="hint" id="msg-tickets"></span>
+  </div>
+  <div class="kpis k3" id="kpis-v"></div>
+  <div class="two">
+    <div class="stack"><h2>Por categoría</h2><div class="tbl"><table id="t-cat"></table></div></div>
+    <div class="stack"><h2>Tickets</h2><div class="tbl" style="max-height:420px;overflow:auto"><table id="t-tickets"></table></div></div>
+  </div>
+</section>
+
+<!-- ============================================================ PRUEBAS -->
+<section id="sec-pru" class="panel" hidden>
+  <div class="stack"><h1>Pruebas</h1>
+  <p class="hint">Vídeos con el número de personas reales contado a mano, para medir y entrenar el conteo. Pulsa «Analizar» y después «Anotar en el registro de pruebas»: las personas reales se rellenan solas.</p></div>
+  <div class="biblio" id="biblio"></div>
+  <div class="stack"><h2>Registro de pruebas</h2>
+  <p class="hint">Cada prueba compara lo que contó la herramienta con el conteo manual del mismo vídeo. «Fusiones erróneas» son las veces que juntó a dos personas distintas en una: es el error más grave, porque esconde clientes.</p></div>
+  <div class="kpis k4" id="kpis-p"></div>
+  <div class="card" id="f-prueba">
+    <div class="row" style="justify-content:space-between"><h2 id="f-titulo">Añadir prueba</h2><span class="hint">Para anotar un análisis, ábrelo en Resultados y pulsa «Anotar en el registro de pruebas».</span></div>
+    <div class="grid2">
+      <label class="f">Fecha<input type="date" id="p-fecha"></label>
+      <label class="f">Versión<select id="p-version"><option>Navegador</option><option>Python</option></select></label>
+      <label class="f">Vídeo<input type="text" id="p-video" placeholder="Ej. Entrada tienda centro"></label>
+      <label class="f">Ajustes<input type="text" id="p-ajustes" placeholder="Ej. 8 fotogramas/s"></label>
+      <label class="f">Conteo total<input type="number" id="p-total" min="0"></label>
+      <label class="f">Clientes únicos<input type="number" id="p-unicos" min="0"></label>
+      <label class="f">Personas reales (conteo manual)<input type="number" id="p-reales" min="0"></label>
+      <label class="f">Fusiones erróneas<input type="number" id="p-fusiones" min="0" value="0"></label>
+      <label class="f">Tiempo de análisis (s)<input type="number" id="p-segundos" min="0"></label>
+      <label class="f" style="grid-column:1 / -1">Notas<input type="text" id="p-notas" placeholder="Qué se observó"></label>
+    </div>
+    <label class="row" style="gap:6px;font-size:13px;color:var(--muted)"><input type="checkbox" id="p-aprox"> El conteo manual es aproximado</label>
+    <div class="row"><button class="btn primary" id="b-p-guardar">Guardar prueba</button><button class="btn small" id="b-p-cancelar" hidden>Cancelar edición</button><span class="hint" id="msg-p"></span></div>
+  </div>
+  <div class="tbl"><table id="t-pruebas"></table></div>
+</section>
+
+<!-- ============================================================ ENTRENAMIENTO -->
+<section id="sec-ent" class="panel" hidden>
+  <div class="stack"><h1>Entrenamiento</h1>
+  <p class="hint">Aquí enseñas a la herramienta a ver mejor a las personas. Revisas fotogramas de un vídeo, corriges lo que el detector hace mal y descargas lo revisado para reentrenarlo.</p></div>
+
+  <details class="guia" id="ent-guia" open>
+    <summary>Cómo usar Entrenamiento</summary>
+    <ol>
+      <li><b>Elige un vídeo o fotos.</b> Un vídeo de tu equipo, uno de los vídeos de Pruebas, o fotos con «Revisar fotos» (se abren en Analizar con este mismo editor y cada foto se guarda sola al corregirla). Lo mejor son grabaciones de tus propias cámaras: el detector aprende de lo que ve.</li>
+      <li><b>Ve al momento que quieras revisar.</b> Usa la barra, «Reproducir» y «Pausar», o «Anterior» y «Siguiente» (saltan el tiempo que marque «Paso»). «Siguiente con dudas» avanza solo hasta el próximo fotograma donde la herramienta no está segura: ahí es donde más aprende.</li>
+      <li><b>Mira las cajas.</b> <span class="sw-t" style="--c:#17a2c4">Azul</span>: persona que la herramienta ve. <span class="sw-t" style="--c:#e0b000">Amarillo discontinuo</span>: duda, no cuenta hasta que decidas. <span class="sw-t" style="--c:#2fbf5f">Verde</span>: añadida por ti. <span class="sw-t" style="--c:#d9534f">Roja tachada</span>: quitada, no es persona.</li>
+      <li><b>Corrige el fotograma.</b>
+        <ul>
+          <li>Falta alguien: arrastra sobre la imagen un rectángulo de la cabeza a los pies. Si la persona está tapada, marca solo la parte visible.</li>
+          <li>Una caja está mal: tócala para seleccionarla y elige «Es persona» o «No es persona» (teclas S y N).</li>
+          <li>Una caja está descolocada: selecciónala y arrastra sus esquinas o su interior.</li>
+          <li>Te equivocaste: «Deshacer» (Ctrl+Z).</li>
+        </ul></li>
+      <li><b>Guarda.</b> «Guardar y seguir» (Intro) guarda el fotograma y pasa al siguiente. Guarda también los fotogramas sin nadie y los que ya estén bien: enseñan lo que no debe marcar y lo que hace bien.</li>
+      <li><b>Descarga los datos.</b> Con unos cientos de fotogramas revisados, pulsa «Descargar datos de entrenamiento». Ese .zip se usa para reentrenar el detector (<code>scripts/entrenar_detector.py</code> en el repositorio) y después se repiten las pruebas para comprobar que mejora.</li>
+    </ol>
+    <p class="hint">Consejos: revisa fotogramas variados (con mucha y poca gente, cerca y lejos, de varias cámaras y horas) y no hace falta revisar todos: con un paso de 1 a 2 segundos basta. Lo revisado se guarda solo; si vuelves a abrir el mismo vídeo, sigues donde lo dejaste.</p>
+  </details>
+
+  <div id="ent-subir" class="drop">
+    <h2>Elige un vídeo o fotos para revisar</h2>
+    <p class="hint">El vídeo no sale de tu equipo. Solo se guardan las cajas que marques.</p>
+    <div class="row" style="justify-content:center">
+      <label class="btn primary">Elegir un vídeo de tu equipo<input id="ent-in" type="file" accept="video/*" hidden></label>
+      <label class="btn solo-movil">Grabar con la cámara<input id="ent-camara" type="file" accept="video/*" capture="environment" hidden></label>
+      <label class="btn">Revisar fotos<input id="ent-fotos" type="file" accept="image/*" multiple hidden></label>
+    </div>
+  </div>
+  <div class="stack" id="ent-bib-bloque"><h3>O uno de los vídeos de Pruebas</h3><div class="biblio ent-biblio" id="ent-biblio"></div></div>
+  <div id="ent-msg-err" class="note bad" hidden></div>
+  <div id="ent-previos" class="stack"></div>
+
+  <div id="ent-trabajo" class="card" hidden>
+    <div class="row" style="justify-content:space-between">
+      <div class="stack" style="gap:2px"><h2 id="ent-nombre"></h2><span class="meta" id="ent-info"></span></div>
+      <button class="btn small" id="ent-otro">Cambiar de vídeo</button>
+    </div>
+    <div class="ent-grid">
+      <div class="stack" style="gap:10px;min-width:0">
+        <div class="ent-visor">
+          <canvas id="ent-cv" class="ent-cv"></canvas>
+          <div class="ent-acciones" id="ent-acciones" hidden>
+            <span class="meta" id="ent-a-estado"></span>
+            <button class="btn small" id="ent-a-si">Es persona</button>
+            <button class="btn small" id="ent-a-no">No es persona</button>
+            <button class="btn small" id="ent-a-borrar">Borrar</button>
+            <button class="btn small" id="ent-a-cerrar" aria-label="Cerrar">✕</button>
+          </div>
+        </div>
+        <input type="range" id="ent-t" min="0" max="1" step="0.01" value="0" aria-label="Momento del vídeo">
+        <div class="row" style="gap:8px">
+          <button class="btn small" id="ent-ant">‹ Anterior</button>
+          <button class="btn small" id="ent-play">Reproducir</button>
+          <button class="btn small" id="ent-sig">Siguiente ›</button>
+          <button class="btn small" id="ent-dudas">Siguiente con dudas</button>
+          <label class="f inline">Paso<select id="ent-paso"><option value="0.5">0,5 s</option><option value="1" selected>1 s</option><option value="2">2 s</option><option value="5">5 s</option></select></label>
+          <label class="f inline">Velocidad<select id="ent-vel"><option value="0.25">0,25×</option><option value="0.5">0,5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label>
+          <span class="meta" id="ent-tiempo"></span>
+        </div>
+        <div class="leyenda">
+          <span><i class="sw" style="background:#17a2c4"></i>Vista por la herramienta</span>
+          <span><i class="sw" style="background:#e0b000"></i>Dudosa (no cuenta)</span>
+          <span><i class="sw" style="background:#2fbf5f"></i>Añadida por ti</span>
+          <span><i class="sw" style="background:#d9534f"></i>Quitada</span>
+        </div>
+        <p class="hint">Arrastra para añadir una persona. Toca una caja para corregirla. Teclado: ← → moverse, Intro guardar, S / N es o no es persona, Ctrl+Z deshacer, Esc soltar la caja.</p>
+      </div>
+      <div class="stack" style="gap:12px;min-width:0">
+        <div class="kpis k2" id="ent-kpis-f"></div>
+        <span class="hint" id="ent-msg"></span>
+        <div class="row" style="gap:8px"><button class="btn primary" id="ent-guardar">Guardar y seguir</button><button class="btn small" id="ent-deshacer">Deshacer</button></div>
+        <span class="hint" id="ent-msg-guardado"></span>
+        <h3>Este vídeo</h3>
+        <div class="kpis k2" id="ent-resumen"></div>
+        <h3>Fotogramas revisados</h3>
+        <div class="ent-lista" id="ent-lista"></div>
+        <button class="btn" id="ent-exportar" disabled>Descargar datos de entrenamiento (.zip)</button>
+        <span class="hint" id="ent-msg-exp"></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+</div>
+<script>/*MOTOR*/</script>
+<script>/*APP*/</script>

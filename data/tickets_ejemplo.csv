@@ -1,0 +1,5 @@
+ticket_id,fecha_hora,importe,categorias
+T-1001,2026-10-09T11:00:21,18.50,vajilla
+T-1002,2026-10-09T11:00:38,42.90,cuencos;vajilla
+T-1003,2026-10-09T11:00:52,12.00,cuencos
+T-1004,2026-10-09T11:01:03,27.40,teteras
