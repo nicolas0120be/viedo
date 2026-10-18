@@ -887,11 +887,11 @@
     const el = $("ent-previos"); if (!el) return;
     pintarBibEnt();
     if (!S.entrenos.length) { el.innerHTML = ""; return; }
-    el.innerHTML = '<h3 style="margin-top:6px">Vídeos ya revisados</h3><div class="tbl"><table><thead><tr><th>Vídeo</th><th class=num>Fotogramas</th><th class=num>Personas</th><th>Última revisión</th></tr></thead><tbody>' +
+    el.innerHTML = '<h3 style="margin-top:6px">Vídeos y fotos ya revisados</h3><div class="tbl"><table><thead><tr><th>Vídeo o foto</th><th class=num>Fotogramas</th><th class=num>Personas</th><th>Última revisión</th></tr></thead><tbody>' +
       S.entrenos.map((d) => {
         let n = 0, p = 0; try { const fs = JSON.parse(d.fotogramas); n = fs.length; fs.forEach((f) => (p += f.cajas.filter((c) => c[6] === "si").length)); } catch (_) {}
-        return `<tr><td>${esc(d.nombre)}</td><td class=num>${n}</td><td class=num>${p}</td><td>${d.actualizado ? esc(fmtFecha(new Date(d.actualizado))) : "—"}</td></tr>`;
-      }).join("") + '</tbody></table></div><p class="hint">Para seguir revisando uno de ellos, vuelve a abrir el mismo vídeo: sus fotogramas revisados se recuperan solos.</p>';
+        return `<tr><td>${d.tipo === "foto" ? '<span class="chip">Foto</span> ' : ""}${esc(d.nombre)}</td><td class=num>${n}</td><td class=num>${p}</td><td>${d.actualizado ? esc(fmtFecha(new Date(d.actualizado))) : "—"}</td></tr>`;
+      }).join("") + '</tbody></table></div><p class="hint">Para seguir revisando uno de ellos, vuelve a abrir el mismo vídeo: sus fotogramas revisados se recuperan solos. Las fotos se revisan en «Analizar» con «Elegir fotos»; al abrir otra vez la misma foto se recuperan tus correcciones.</p>';
   }
 
   function revisadosDe(nombre, ancho, alto) {
@@ -1331,7 +1331,7 @@
     const tot = F.fotos.reduce((a, x) => a + (x.cajas ? cuentaFoto(x) : 0), 0);
     $("fo-total").textContent = fmtN(tot);
     $("fo-total-s").textContent = `${F.fotos.length} ${F.fotos.length === 1 ? "foto" : "fotos"}`;
-    pintarTiras();
+    pintarTiras(); estadoGuardadoFoto();
   }
 
   function pintarTiras() {
@@ -1350,7 +1350,7 @@
     files = [...files].filter(esImagen);
     if (!files.length) return;
     $("paso-subir").hidden = true; $("paso-foto").hidden = false; $("msg-error").hidden = true;
-    const nuevas = files.map((file) => ({ nombre: file.name && !/^image\.\w+$/i.test(file.name) ? file.name : nombreCamara().replace("Cámara", "Foto"), url: URL.createObjectURL(file), img: null, cajas: null }));
+    const nuevas = files.map((file) => ({ nombre: file.name && !/^image\.\w+$/i.test(file.name) ? file.name : nombreCamara().replace("Cámara", "Foto"), url: URL.createObjectURL(file), img: null, cajas: null, tam: file.size }));
     F.fotos.push(...nuevas);
     pintarTiras();
     const msg = $("fo-msg");
@@ -1358,7 +1358,13 @@
       msg.hidden = false; msg.className = "note"; msg.textContent = `Contando personas en «${f.nombre}»… La primera vez se cargan los modelos y tarda un poco más.`;
       try {
         f.img = new Image(); f.img.src = f.url; await f.img.decode();
-        f.cajas = await detectarFoto(f.img);
+        f.id = "foto-" + slug(f.nombre.replace(/\.\w+$/, "")) + "-" + f.img.naturalWidth + "x" + f.img.naturalHeight + "-" + (f.tam || 0).toString(36);
+        const previo = S.entrenos.find((d) => d.id === f.id);
+        let guardadas = null;
+        try { guardadas = previo && JSON.parse(previo.fotogramas)[0]?.cajas; } catch (_) {}
+        f.cajas = guardadas ? guardadas.map(([x1, y1, x2, y2, sc, o, e]) => ({ c: [x1, y1, x2, y2], s: sc, o, e })) : await detectarFoto(f.img);
+        f.recuperada = !!guardadas;
+        guardarFoto(f, true);
         F.i = F.fotos.indexOf(f); pintarFoto();
       } catch (err) {
         F.fotos.splice(F.fotos.indexOf(f), 1);
@@ -1369,6 +1375,52 @@
     }
     if (!F.fotos.length) { $("paso-foto").hidden = true; $("paso-subir").hidden = false; }
   }
+
+  // Cada foto se guarda como un fotograma de entrenamiento (solo las cajas, nunca la imagen).
+  async function guardarFoto(f, inicial) {
+    clearTimeout(f.temp);
+    f.temp = setTimeout(async () => {
+      const doc = { nombre: f.nombre, tipo: "foto", ancho: f.img.naturalWidth, alto: f.img.naturalHeight, duracion: 0,
+        fotogramas: JSON.stringify([{ t: 0, cajas: f.cajas.map((b) => [...b.c, b.s, b.o, b.e, 0]) }]), actualizado: new Date().toISOString() };
+      S.entrenos = S.entrenos.filter((d) => d.id !== f.id).concat([{ id: f.id, ...doc }]);
+      f.guardada = await guardar("entrenamiento/" + f.id, doc);
+      if (F.fotos[F.i] === f) estadoGuardadoFoto();
+    }, inicial ? 0 : 500);
+  }
+  function estadoGuardadoFoto() {
+    const f = F.fotos[F.i], el = $("fo-guardado"); if (!f) return;
+    const n = F.fotos.filter((x) => x.guardada).length;
+    el.textContent = f.guardada === false ? "No se pudo guardar: tus correcciones solo valen mientras esta página siga abierta."
+      : `${f.recuperada ? "Recuperadas tus correcciones anteriores de esta foto. " : ""}Guardada en Entrenamiento (${n} ${n === 1 ? "foto" : "fotos"} de esta tanda).`;
+    $("fo-exportar").disabled = !F.fotos.some((x) => x.cajas);
+  }
+  $("fo-exportar").onclick = async () => {
+    const fs = F.fotos.filter((x) => x.cajas), msg = $("fo-msg-exp"), b = $("fo-exportar");
+    if (!fs.length) return;
+    if (!S.downloads) { msg.textContent = "La descarga no está disponible en esta vista."; return; }
+    b.disabled = true;
+    try {
+      await cargarZip();
+      const zip = new window.JSZip(), lz = document.createElement("canvas"), cx = lz.getContext("2d");
+      let i = 0;
+      for (const f of fs) {
+        msg.textContent = `Preparando foto ${++i} de ${fs.length}…`;
+        const W0 = f.img.naturalWidth, H0 = f.img.naturalHeight, e2 = Math.min(1, 1280 / Math.max(W0, H0));
+        lz.width = Math.round(W0 * e2); lz.height = Math.round(H0 * e2); cx.drawImage(f.img, 0, 0, lz.width, lz.height);
+        zip.file(`images/${f.id}.jpg`, await new Promise((ok) => lz.toBlob(ok, "image/jpeg", 0.9)));
+        zip.file(`labels/${f.id}.txt`, f.cajas.filter((c) => c.e === "si").map(({ c: [x1, y1, x2, y2] }) =>
+          ["0", (x1 + x2) / 2 / W0, (y1 + y2) / 2 / H0, (x2 - x1) / W0, (y2 - y1) / H0].map((x, k) => (k ? x.toFixed(6) : x)).join(" ")).join("\n"));
+      }
+      zip.file("data.yaml", "# Una sola clase: persona (clase 0 de COCO).\npath: .\ntrain: images\nval: images\nnames:\n  0: person\n");
+      zip.file("anotaciones.json", JSON.stringify({ fotos: fs.map((f) => ({ id: f.id, nombre: f.nombre, ancho: f.img.naturalWidth, alto: f.img.naturalHeight, cajas: f.cajas.map((b) => [...b.c, b.s, b.o, b.e, 0]) })) }, null, 1));
+      zip.file("LEEME.txt", "Fotos revisadas a mano para entrenar el detector de personas.\n\nimages/: las fotos en JPG.\nlabels/: una línea por persona en formato YOLO (clase cx cy ancho alto, normalizado de 0 a 1).\nanotaciones.json: todas las cajas, incluidas las descartadas.\n\nSe puede juntar con los .zip de vídeos:\n  python scripts/entrenar_detector.py entrenamiento-*.zip\n");
+      msg.textContent = "Comprimiendo…";
+      const d = new Date();
+      await S.downloads.save({ filename: `entrenamiento-fotos-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.zip`, data: await zip.generateAsync({ type: "blob" }) });
+      msg.textContent = `${fs.length} ${fs.length === 1 ? "foto exportada" : "fotos exportadas"}.`;
+    } catch (e) { msg.textContent = e && e.code === "declined" ? "" : "No se pudo exportar: " + (e.message || e.code || e); }
+    b.disabled = false;
+  };
 
   // Coordenadas de la imagen a partir de un toque en el lienzo.
   function puntoFoto(e) {
@@ -1382,7 +1434,7 @@
     const med = (a) => a.sort((p, q) => p - q)[a.length >> 1];
     const w = vistas.length ? med(vistas.map((v) => v[0])) : W * 0.08, h = vistas.length ? med(vistas.map((v) => v[1])) : H * 0.25;
     f.cajas.push({ c: [x - w / 2, y - h / 2, x + w / 2, y + h / 2].map((v, i) => Math.round(Math.max(0, Math.min(i % 2 ? H : W, v)))), s: 1, o: "h", e: "si" });
-    pintarFoto();
+    pintarFoto(); guardarFoto(f);
   }
   {
     const cv = $("fo-lienzo");
@@ -1402,7 +1454,7 @@
       const c = bajo.reduce((a, b) => ((a.c[2] - a.c[0]) * (a.c[3] - a.c[1]) <= (b.c[2] - b.c[0]) * (b.c[3] - b.c[1]) ? a : b));
       if (c.o === "h") f.cajas.splice(f.cajas.indexOf(c), 1);
       else c.e = c.e === "si" ? "no" : "si";
-      pintarFoto();
+      pintarFoto(); guardarFoto(f);
     });
   }
   $("in-foto").onchange = (e) => { const fs = [...e.target.files]; e.target.value = ""; abrirFotos(fs); };

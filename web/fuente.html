@@ -171,7 +171,7 @@ figcaption{color:var(--muted);font-size:13px}
 
 <!-- ============================================================ ANALIZAR -->
 <section id="sec-ana" class="panel">
-  <div class="stack"><h1>Analizar vídeo o foto</h1><span class="meta">Versión 10 · fotos y vídeos</span>
+  <div class="stack"><h1>Analizar vídeo o foto</h1><span class="meta">Versión 11 · fotos y vídeos</span>
   <p class="hint">Sube la grabación de una cámara de la tienda, o una foto si solo quieres contar cuántas personas hay en un momento. La herramienta detecta a cada persona, la sigue por la imagen, une los tramos de la misma persona para no contarla dos veces y calcula las estadísticas.</p></div>
 
   <div id="paso-subir" class="drop">
@@ -202,6 +202,12 @@ figcaption{color:var(--muted);font-size:13px}
       </div>
       <p class="hint">Verde: se cuenta. Amarillo: la herramienta duda y no la cuenta. Rojo: la has descartado. Toca una caja para cambiarla entre «se cuenta» y «no se cuenta». Si falta alguien, mantén pulsado o haz doble clic sobre esa persona para sumarla a mano.</p>
       <div id="fo-tiras" class="foto-tiras"></div>
+      <div class="stack" style="gap:6px;border-top:1px solid var(--line);padding-top:12px">
+        <h3>Entrenamiento</h3>
+        <p class="hint">Cada foto y tus correcciones se guardan solas en Entrenamiento (solo las cajas, nunca la imagen). Para reentrenar el detector, descarga las fotos con sus cajas; el .zip sirve junto a los de vídeos.</p>
+        <span class="hint" id="fo-guardado"></span>
+        <div class="row"><button class="btn small" id="fo-exportar" disabled>Descargar fotos para entrenamiento (.zip)</button><span class="hint" id="fo-msg-exp"></span></div>
+      </div>
     </div>
   </div>
 
