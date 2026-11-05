@@ -160,9 +160,11 @@
   const ctxYolo = () => (lienzoYolo ||= Object.assign(document.createElement("canvas"), { width: 640, height: 640 })).getContext("2d", { willReadFrequently: true });
   // Cajas del detector [x1, y1, x2, y2, s] -> cajas revisables {c, s, o, e}.
   const aRevisables = (cajas) => cajas.map(([x1, y1, x2, y2, s]) => ({ c: [x1, y1, x2, y2].map(Math.round), s: Math.round(s * 100) / 100, o: "m", e: s >= UMBRAL_PERSONA ? "si" : "duda" }));
-  // Formato guardado en entrenamiento/: [x1, y1, x2, y2, s, o, e, ajustada].
-  const cajaAFila = (b) => [...b.c, b.s, b.o, b.e, b.aj ? 1 : 0];
-  const filaACaja = ([x1, y1, x2, y2, s, o, e, aj]) => ({ c: [x1, y1, x2, y2], s, o, e, aj: !!aj });
+  // Formato guardado en entrenamiento/: [x1, y1, x2, y2, s, o, e, marcas]; marcas: 1 ajustada a mano, 2 confirmada por el seguimiento del vídeo.
+  const cajaAFila = (b) => [...b.c, b.s, b.o, b.e, (b.aj ? 1 : 0) | (b.seg ? 2 : 0)];
+  const filaACaja = ([x1, y1, x2, y2, s, o, e, f]) => ({ c: [x1, y1, x2, y2], s, o, e, aj: !!(f & 1), seg: !!(f & 2) });
+  // La herramienta la cuenta como persona sin ayuda: confianza alta, o confirmada por el seguimiento.
+  const vistaSola = (s, seg) => s >= UMBRAL_PERSONA || !!seg;
 
   /* -------------------------------------------------- análisis de vídeo */
   function esperar(el, ev) { return new Promise((ok, mal) => { const f = () => { el.removeEventListener(ev, f); el.removeEventListener("error", g); ok(); }; const g = () => { el.removeEventListener(ev, f); mal(new Error("No se pudo leer el vídeo en este navegador (prueba con MP4 H.264).")); }; el.addEventListener(ev, f); el.addEventListener("error", g); }); }
@@ -955,12 +957,36 @@
     await irAEnt(0);
   }
 
-  // Detecta personas en el fotograma que muestra ahora E.v. Devuelve las cajas ya clasificadas.
-  async function detectarEnt() {
+  // Detecta personas en el fotograma E.t igual que el análisis de vídeo: además del fotograma, sigue a las
+  // personas durante el segundo anterior (8 fotogramas/s, mismo seguidor). Una caja de confianza baja que el
+  // seguimiento une a una persona ya vista cuenta como persona, como en Analizar y Pruebas.
+  // rapido: solo el fotograma (para buscar candidatos deprisa).
+  const FPS_ENT = 8, VENTANA_ENT = 8;
+  async function detectarEnt(rapido) {
     const m = crearMotor(); await m.listo;
-    const lb = Motor.letterbox(E.ancho, E.alto, 640);
-    const r = await m.detectar(pixelesYolo(ctxYolo(), E.v, lb), lb, 0.1);
-    return aRevisables(r.cajas);
+    const lb = Motor.letterbox(E.ancho, E.alto, 640), t = E.t, turno = E.buscando;
+    // Si mientras tanto se pide otro fotograma, se abandona (devuelve null) para no pelear por el vídeo.
+    const ir = async (tt) => { if (E.buscando !== turno) return false; await irAt(E.v, tt); return E.buscando === turno; };
+    const previos = [];
+    if (!rapido) for (let k = VENTANA_ENT; k >= 1; k--) {
+      const tt = t - k / FPS_ENT; if (tt < 0) continue;
+      if (!(await ir(tt))) return null;
+      previos.push(m.detectar(pixelesYolo(ctxYolo(), E.v, lb), lb, 0.1));
+    }
+    if (!(await ir(t))) return null;
+    const actual = await m.detectar(pixelesYolo(ctxYolo(), E.v, lb), lb, 0.1);
+    const cajas = aRevisables(actual.cajas);
+    if (rapido) return cajas;
+    const seg = new Motor.ByteTrack({ maxPerdido: Math.round(2 * FPS_ENT) });
+    for (const r of await Promise.all(previos)) seg.actualizar(r.cajas);
+    const pistas = seg.actualizar(actual.cajas);
+    // Cada persona seguida corresponde a la caja que más se le parece; solo esa se promueve (no las cajas repetidas encima).
+    for (const p of pistas) {
+      let mejor = null, v = 0.5;
+      for (const c of cajas) { const u = Motor.iou(p.caja, c.c); if (u > v) { v = u; mejor = c; } }
+      if (mejor && mejor.e === "duda") { mejor.e = "si"; mejor.seg = true; }
+    }
+    return cajas;
   }
   function textoDeteccion() {
     const n = E.cajas.filter((c) => c.e === "si").length, d = E.cajas.filter((c) => c.e === "duda").length;
@@ -987,7 +1013,7 @@
     $("ent-msg").textContent = "Buscando personas…";
     try {
       const cajas = await detectarEnt();
-      if (turno !== E.buscando) return;
+      if (!cajas || turno !== E.buscando) return;
       E.cajas = cajas;
       $("ent-msg").textContent = textoDeteccion();
     } catch (e) { $("ent-msg").textContent = "No se pudo ejecutar el detector: " + e.message; }
@@ -1008,8 +1034,14 @@
         $("ent-msg").textContent = `Buscando dudas… ${fmtDur(t)} de ${fmtDur(E.duracion)}`;
         if (!E.fotos.has(claveT(t))) {
           await irAt(E.v, t); E.t = t; $("ent-t").value = String(t); pintarEnt();
-          const cajas = await detectarEnt();
-          if (cajas.some((c) => c.e === "duda")) { hallado = { t, cajas }; break; }
+          // Primero el fotograma solo (rápido); si hay dudas, se confirma con el seguimiento.
+          const rapidas = await detectarEnt(true);
+          if (!rapidas) break;
+          if (rapidas.some((c) => c.e === "duda")) {
+            const cajas = await detectarEnt();
+            if (!cajas) break;
+            if (cajas.some((c) => c.e === "duda")) { hallado = { t, cajas }; break; }
+          }
         }
         t += paso;
       }
@@ -1062,7 +1094,7 @@
         q("si").hidden = b.o === "h" || b.e === "si";
         q("no").hidden = b.o === "h" || b.e === "no";
         q("borrar").hidden = b.o !== "h";
-        q("estado").textContent = b.o === "h" ? "Añadida por ti" : b.e === "si" ? `Persona (${Math.round(b.s * 100)} %)${b.aj ? ", ajustada" : ""}` : b.e === "no" ? "Quitada: no es persona" : `Dudosa (${Math.round(b.s * 100)} %)`;
+        q("estado").textContent = b.o === "h" ? "Añadida por ti" : b.e === "si" ? `Persona (${Math.round(b.s * 100)} %${b.seg ? ", seguida en el vídeo" : ""})${b.aj ? ", ajustada" : ""}` : b.e === "no" ? "Quitada: no es persona" : `Dudosa (${Math.round(b.s * 100)} %)`;
         barra.hidden = false;
         const x = Math.min(Math.max(0, b.c[0] * f), Math.max(0, r.width - barra.offsetWidth)), y = b.c[3] * f + 6;
         barra.style.left = x + "px"; barra.style.top = (y + barra.offsetHeight > r.height ? Math.max(0, b.c[1] * f - barra.offsetHeight - 6) : y) + "px";
@@ -1159,8 +1191,8 @@
       const n = (fn) => E.cajas.filter(fn).length;
       kpis($("ent-kpis-f"), [
         { l: "Personas en el fotograma", v: fmtN(n((x) => x.e === "si")), hl: true },
-        { l: "Vistas por la herramienta", v: fmtN(n((x) => x.o === "m" && x.e === "si" && x.s >= ALTA)) },
-        { l: "Añadidas o aceptadas por ti", v: fmtN(n((x) => x.o === "h" || (x.o === "m" && x.e === "si" && x.s < ALTA))) },
+        { l: "Vistas por la herramienta", v: fmtN(n((x) => x.o === "m" && x.e === "si" && vistaSola(x.s, x.seg))) },
+        { l: "Añadidas o aceptadas por ti", v: fmtN(n((x) => x.o === "h" || (x.o === "m" && x.e === "si" && !vistaSola(x.s, x.seg)))) },
         { l: "Quedan por decidir", v: fmtN(n((x) => x.e === "duda")), s: "cajas amarillas" },
       ]);
       $("ent-tiempo").textContent = `${fmtDur(E.t)} de ${fmtDur(E.duracion)}` + (E.fotos.has(claveT(E.t)) ? " · revisado" : "");
@@ -1227,9 +1259,9 @@
   }
   function resumenEnt() {
     let vistas = 0, dudas = 0, manos = 0, falsas = 0;
-    for (const f of E.fotos.values()) for (const [, , , , s, o, e] of f.cajas) {
+    for (const f of E.fotos.values()) for (const [, , , , s, o, e, fl] of f.cajas) {
       if (o === "h") manos++;
-      else if (e === "si") (s >= ALTA ? vistas++ : dudas++);
+      else if (e === "si") (vistaSola(s, fl & 2) ? vistas++ : dudas++);
       else if (e === "no" && s >= ALTA) falsas++;
     }
     const total = vistas + dudas + manos;
