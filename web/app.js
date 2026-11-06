@@ -229,24 +229,26 @@
     let k = 0, sig = 0, enPausa = 0, ultimo = performance.now();
     const maxVuelo = m.nDet + 1;
     const dormir = (ms) => new Promise((ok) => setTimeout(ok, ms));
+    // Pausa, cancelación y ritmo: los de la pestaña Analizar (S) o un control propio (conteo en Entrenamiento).
+    const ctl = ajustes.control || S;
     while (sig < N) {
-      if (S.cancelar) throw new Error("cancelado");
-      if (S.pausado) {
+      if (ctl.cancelar) throw new Error("cancelado");
+      if (ctl.pausado) {
         const p0 = performance.now();
         alAvanzar({ fase: "En pausa", frac: sig / N, pausa: true });
-        while (S.pausado && !S.cancelar) await dormir(120);
+        while (ctl.pausado && !ctl.cancelar) await dormir(120);
         enPausa += performance.now() - p0;
         continue;
       }
       // A velocidad limitada, cada fotograma se muestra el tiempo que dura en el vídeo dividido por el ritmo.
-      if (S.ritmo > 0) { const falta = 1000 / fps / S.ritmo - (performance.now() - ultimo); if (falta > 0) await dormir(falta); }
+      if (ctl.ritmo > 0) { const falta = 1000 / fps / ctl.ritmo - (performance.now() - ultimo); if (falta > 0) await dormir(falta); }
       ultimo = performance.now();
       while (k < N && k - sig < maxVuelo) { const px = await capturar(k); enVuelo.set(k, m.detectar(px, lb, ajustes.minScore ?? 0.1)); k++; }
       const r = await enVuelo.get(sig); enVuelo.delete(sig);
       const { img, pistas } = procesar(sig, r);
       sig++;
       const seg = (performance.now() - t0 - enPausa) / 1000;
-      const resta = S.ritmo > 0 ? Math.max((seg / sig) * (N - sig), (N - sig) / fps / S.ritmo) : (seg / sig) * (N - sig);
+      const resta = ctl.ritmo > 0 ? Math.max((seg / sig) * (N - sig), (N - sig) / fps / ctl.ritmo) : (seg / sig) * (N - sig);
       alAvanzar({ fase: "Detectando y siguiendo personas", frac: sig / N, img, lb, pistas, t: sig / fps, dur, resta, trayectos: reg.tr.size });
     }
     reg.cerrar();
@@ -280,7 +282,7 @@
       calor: { gw: reg.gw, gh: reg.gh, v: Array.from(reg.calor) }, fondo: fondoUrl,
       segundosProceso: Math.round((performance.now() - t0 - enPausa) / 1000),
     };
-    if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+    if (url.startsWith("blob:") && !ajustes.conservarUrl) URL.revokeObjectURL(url);
     return { analisis, registro, personas, reid, validos };
   }
 
@@ -954,7 +956,52 @@
     $("ent-subir").hidden = $("ent-bib-bloque").hidden = $("ent-previos").hidden = true; $("ent-trabajo").hidden = false;
     $("ent-guia").open = false;
     pintarListaEnt(); resumenEnt();
+    contarUnicosEnt();
     await irAEnt(0);
+  }
+
+  /* Personas únicas del vídeo: el mismo análisis que Pruebas (seguimiento + re-identificación), en segundo plano.
+     Cada persona recibe un número (P1, P2…) por orden de aparición; el contador acumula las que ya han salido. */
+  function pararConteoEnt() { if (E.conteo) E.conteo.ctl.cancelar = true; E.conteo = null; }
+  async function contarUnicosEnt() {
+    pararConteoEnt();
+    const mio = (E.conteo = { ctl: { cancelar: false, pausado: false, ritmo: 0 }, frac: 0, listo: false });
+    pintarConteoEnt();
+    try {
+      const res = await analizar(E.url, { nombre: E.nombre, camara: "entrenamiento", inicio: isoLocal(new Date()) },
+        { zonas: [], lineas: [], interaccion_segundos: 3, min_segundos_visita: 1 }, { fps: 8, control: mio.ctl, conservarUrl: true },
+        (a) => { if (E.conteo === mio && a.frac !== undefined && Math.abs(a.frac - mio.frac) > 0.01) { mio.frac = a.frac; pintarConteoEnt(); } });
+      if (E.conteo !== mio) return;
+      const primera = {};
+      for (const tr of res.analisis.trayectos) primera[tr.persona] = Math.min(primera[tr.persona] ?? Infinity, tr.t0);
+      const orden = Object.entries(primera).sort((a, b) => a[1] - b[1]), numero = {};
+      orden.forEach(([p], i) => (numero[p] = i + 1));
+      Object.assign(mio, { listo: true, total: orden.length, inicios: orden.map((x) => x[1]), registro: res.registro, persona: res.personas, numero });
+    } catch (e) { if (E.conteo === mio) mio.error = e.message === "cancelado" ? null : e.message; }
+    if (E.conteo === mio) { pintarConteoEnt(); pintarEnt(); }
+  }
+  function pintarConteoEnt() {
+    const c = E.conteo, el = $("ent-unicos"); if (!el) return;
+    if (!c) { el.innerHTML = ""; return; }
+    if (c.error) { kpis(el, [{ l: "Personas únicas", v: "—", s: "No se pudo contar: " + c.error }]); return; }
+    if (!c.listo) { kpis(el, [{ l: "Personas únicas", v: fmtPct(c.frac), s: "Contando en todo el vídeo… puedes seguir revisando" }, { l: "Hasta este momento", v: "…" }]); return; }
+    const hasta = c.inicios.filter((t0) => t0 <= E.t + 0.01).length;
+    kpis(el, [
+      { l: "Personas únicas hasta aquí", v: fmtN(hasta), s: `en ${fmtDur(E.t)} de vídeo`, hl: true },
+      { l: "Personas únicas en el vídeo", v: fmtN(c.total), s: "P1, P2… en las cajas: misma persona, mismo número" },
+    ]);
+  }
+  // Número de persona (P1, P2…) de una caja en el instante actual, según el conteo del vídeo.
+  function numeroPersonaEnt(b) {
+    const c = E.conteo; if (!c || !c.listo || !c.registro.length) return null;
+    const reg = c.registro;
+    let lo = 0, hi = reg.length - 1;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (reg[mid][0] < E.t) lo = mid + 1; else hi = mid; }
+    const cand = [reg[lo], reg[lo - 1]].filter(Boolean).sort((x, y) => Math.abs(x[0] - E.t) - Math.abs(y[0] - E.t))[0];
+    if (!cand || Math.abs(cand[0] - E.t) > 0.2) return null;
+    let mejor = null, v = 0.4;
+    for (const [id, ...caja] of cand[1]) { const u = Motor.iou(caja, b.c); if (u > v && c.persona[id] !== undefined) { v = u; mejor = id; } }
+    return mejor === null ? null : c.numero[c.persona[mejor]] || null;
   }
 
   // Detecta personas en el fotograma E.t igual que el análisis de vídeo: además del fotograma, sigue a las
@@ -1060,7 +1107,7 @@
   // estado() devuelve {cajas, sel, arr, deshacer, ancho, alto, fondo()}; pre es el prefijo de los ids (lienzo pre+"cv", barra pre+"acciones").
   const COL_ENT = { si: "#17a2c4", duda: "#e0b000", no: "#d9534f", h: "#2fbf5f" };
   const colorCaja = (b) => (b.o === "h" ? COL_ENT.h : COL_ENT[b.e]);
-  function crearEditor(pre, { estado, bloqueado = () => false, alCambiar = () => {}, alPintar = () => {} }) {
+  function crearEditor(pre, { estado, bloqueado = () => false, alCambiar = () => {}, alPintar = () => {}, etiqueta = () => null }) {
     const cv = $(pre + "cv"), barra = $(pre + "acciones"), q = (n) => $(pre + "a-" + n);
     function pintar() {
       const E = estado(); if (!E) return;
@@ -1075,9 +1122,10 @@
         ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
         if (b.e === "no") { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.moveTo(x2, y1); ctx.lineTo(x1, y2); ctx.stroke(); }
         ctx.setLineDash([]);
-        if (b.o === "m" && b.e !== "no" && !sel) {
+        const et = b.e !== "no" ? etiqueta(b) : null;
+        if ((b.o === "m" && b.e !== "no" || et) && !sel) {
           ctx.font = `600 ${Math.round(lw * 6)}px system-ui`; ctx.fillStyle = col;
-          ctx.fillText(Math.round(b.s * 100) + "%", x1 + lw, Math.max(lw * 7, y1 - lw * 2));
+          ctx.fillText([et, b.o === "m" ? Math.round(b.s * 100) + "%" : null].filter(Boolean).join(" · "), x1 + lw, Math.max(lw * 7, y1 - lw * 2));
         }
         if (sel) {
           ctx.fillStyle = "#ffffff"; ctx.strokeStyle = col; ctx.lineWidth = lw;
@@ -1188,6 +1236,7 @@
 
   const edEnt = crearEditor("ent-", {
     estado: () => E,
+    etiqueta: (b) => { const n = numeroPersonaEnt(b); return n ? "P" + n : null; },
     bloqueado: () => !E.v || E.jugando || E.saltando,
     alPintar: () => {
       const n = (fn) => E.cajas.filter(fn).length;
@@ -1198,6 +1247,7 @@
         { l: "Quedan por decidir", v: fmtN(n((x) => x.e === "duda")), s: "cajas amarillas" },
       ]);
       $("ent-tiempo").textContent = `${fmtDur(E.t)} de ${fmtDur(E.duracion)}` + (E.fotos.has(claveT(E.t)) ? " · revisado" : "");
+      if (E.conteo && E.conteo.listo) pintarConteoEnt();
     },
   });
   const pintarEnt = edEnt.pintar;
@@ -1514,7 +1564,7 @@
     const f = [...e.dataTransfer.files].find((x) => x.type.startsWith("video/") || /\.(mp4|webm|mov|m4v)$/i.test(x.name));
     if (f) abrirEntreno(URL.createObjectURL(f), f.name);
   });
-  $("ent-otro").onclick = () => { pararEnt(); E.buscando++; if (E.v) E.v.remove(); E.v = null; $("ent-trabajo").hidden = true; $("ent-subir").hidden = $("ent-bib-bloque").hidden = $("ent-previos").hidden = false; pintarEntrenos(); };
+  $("ent-otro").onclick = () => { pararEnt(); pararConteoEnt(); E.buscando++; if (E.v) E.v.remove(); E.v = null; $("ent-trabajo").hidden = true; $("ent-subir").hidden = $("ent-bib-bloque").hidden = $("ent-previos").hidden = false; pintarEntrenos(); };
 
   /* ----------------------------------------------------------- arranque */
   window.App = { F, detectarFoto, analizar, estadisticas: Motor.estadisticas, EJEMPLO, BIBLIOTECA, S, E, crearMotor };
