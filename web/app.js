@@ -979,8 +979,10 @@
     if (rapido) return cajas;
     const seg = new Motor.ByteTrack({ maxPerdido: Math.round(2 * FPS_ENT) });
     for (const r of await Promise.all(previos)) seg.actualizar(r.cajas);
-    const pistas = seg.actualizar(actual.cajas);
-    // Cada persona seguida corresponde a la caja que más se le parece; solo esa se promueve (no las cajas repetidas encima).
+    return promoverSeguidas(cajas, seg.actualizar(actual.cajas));
+  }
+  // Cada persona seguida corresponde a la caja que más se le parece; solo esa se promueve (no las cajas repetidas encima).
+  function promoverSeguidas(cajas, pistas) {
     for (const p of pistas) {
       let mejor = null, v = 0.5;
       for (const c of cajas) { const u = Motor.iou(p.caja, c.c); if (u > v) { v = u; mejor = c; } }
@@ -1026,7 +1028,7 @@
     if (E.saltando) { E.saltando = false; return; }
     pararEnt();
     const paso = +$("ent-paso").value, b = $("ent-dudas"), txt = b.textContent;
-    E.saltando = true; b.textContent = "Detener búsqueda";
+    E.saltando = true; b.textContent = "Detener búsqueda"; E.cajas = [];
     const turno = ++E.buscando;
     let t = E.t + paso, hallado = null;
     try {
@@ -1064,10 +1066,10 @@
       const E = estado(); if (!E) return;
       const ctx = cv.getContext("2d"), fondo = E.fondo();
       if (fondo) ctx.drawImage(fondo, 0, 0, E.ancho, E.alto);
-      if (bloqueado()) { barra.hidden = true; alPintar(); return; }
+      const soloVer = bloqueado();
       const lw = Math.max(2, E.ancho / 320);
       E.cajas.forEach((b, i) => {
-        const [x1, y1, x2, y2] = b.c, col = colorCaja(b), sel = i === E.sel;
+        const [x1, y1, x2, y2] = b.c, col = colorCaja(b), sel = i === E.sel && !soloVer;
         ctx.lineWidth = (b.o === "h" ? lw * 1.4 : lw) * (sel ? 1.6 : 1); ctx.strokeStyle = col;
         ctx.setLineDash(b.e === "si" ? [] : [lw * 3, lw * 2]);
         ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
@@ -1089,7 +1091,7 @@
       }
       // Barra de acciones junto a la caja seleccionada.
       const b = E.cajas[E.sel];
-      if (b && !E.arr) {
+      if (b && !E.arr && !soloVer) {
         const r = cv.getBoundingClientRect(), f = r.width / E.ancho;
         q("si").hidden = b.o === "h" || b.e === "si";
         q("no").hidden = b.o === "h" || b.e === "no";
@@ -1213,11 +1215,27 @@
   $("ent-play").onclick = async () => {
     if (!E.v) return;
     if (E.jugando) { pararEnt(); const t = E.v.currentTime; return irAEnt(t); }
-    E.jugando = true; E.buscando++; $("ent-play").textContent = "Pausar"; $("ent-msg").textContent = "Pausa el vídeo donde quieras revisar.";
+    E.jugando = true; E.buscando++; E.sel = null; $("ent-play").textContent = "Pausar";
+    $("ent-msg").textContent = "La herramienta marca a las personas mientras se reproduce. Pausa donde veas que falta alguien o sobra una caja, y corrígelo.";
     E.v.playbackRate = +$("ent-vel").value;
     try { await E.v.play(); } catch (e) { pararEnt(); return; }
+    // Detección en directo: un fotograma cada vez (el más reciente) y el mismo seguimiento que en el análisis.
+    const m = crearMotor(), lb = Motor.letterbox(E.ancho, E.alto, 640), turno = E.buscando;
+    const seg = new Motor.ByteTrack({ maxPerdido: 8 });
+    let ocupado = false;
+    m.listo.catch(() => {});
+    const detectarVivo = async () => {
+      ocupado = true;
+      try {
+        await m.listo;
+        const r = await m.detectar(pixelesYolo(ctxYolo(), E.v, lb), lb, 0.1);
+        if (E.jugando && turno === E.buscando) E.cajas = promoverSeguidas(aRevisables(r.cajas), seg.actualizar(r.cajas));
+      } catch (_) {}
+      ocupado = false;
+    };
     const bucle = () => {
       if (!E.jugando) return;
+      if (!ocupado) detectarVivo();
       E.t = E.v.currentTime; $("ent-t").value = String(E.t); pintarEnt();
       $("ent-tiempo").textContent = `${fmtDur(E.t)} de ${fmtDur(E.duracion)}`;
       if (E.v.ended) { pararEnt(); return irAEnt(E.duracion - 0.05); }
