@@ -1,0 +1,27 @@
+{
+  "tienda": "Demo pasillo de menaje",
+  "video_inicio": "2026-10-09T11:00:00",
+  "lineas": {
+    "acceso_fondo": [[130, 115], [470, 115]]
+  },
+  "zonas": {
+    "pasillo_izquierdo": {
+      "categoria": "vajilla",
+      "poligono": [[0, 404], [0, 250], [150, 110], [255, 95], [235, 404]]
+    },
+    "mesa_central": {
+      "categoria": "teteras",
+      "poligono": [[255, 95], [335, 95], [400, 404], [235, 404]]
+    },
+    "pasillo_derecho": {
+      "categoria": "cuencos",
+      "poligono": [[335, 95], [430, 95], [720, 330], [720, 404], [400, 404]]
+    },
+    "fondo": {
+      "categoria": "cristaleria",
+      "poligono": [[150, 20], [440, 20], [430, 95], [255, 95], [150, 110]]
+    }
+  },
+  "interaccion_segundos": 3.0,
+  "min_segundos_visita": 1.0
+}
